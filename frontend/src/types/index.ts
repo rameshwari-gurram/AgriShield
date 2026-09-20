@@ -1,5 +1,6 @@
 export * from './api';
 export * from './farmer';
+export * from './farm';
 
 export type ServiceStatusType = 'healthy' | 'degraded' | 'unhealthy' | 'loading' | 'offline';
 

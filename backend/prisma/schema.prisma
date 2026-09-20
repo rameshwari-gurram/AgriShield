@@ -1,5 +1,5 @@
 // AgriShield Parametric - Prisma Schema
-// Module 2: PostgreSQL Database Foundation + Farmer Management
+// Module 3: Farm Management Domain
 
 generator client {
   provider = "prisma-client-js"
@@ -22,6 +22,19 @@ enum Language {
   pa // Punjabi
 }
 
+enum AreaUnit {
+  ACRE
+  HECTARE
+  BIGHA
+  GUNTHA
+}
+
+enum FarmStatus {
+  ACTIVE
+  INACTIVE
+  HARVESTED
+}
+
 model Farmer {
   id                    String    @id @default(uuid()) @db.Uuid
   fullName              String    @db.VarChar(100)
@@ -31,6 +44,37 @@ model Farmer {
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 
+  // Relationships
+  farms                 Farm[]
+
   @@index([farmerReferenceNumber])
   @@map("farmers")
+}
+
+model Farm {
+  id                  String      @id @default(uuid()) @db.Uuid
+  farmerId            String      @db.Uuid
+  farmName            String      @db.VarChar(100)
+  farmReferenceNumber String      @unique @db.VarChar(50)
+  cropName            String      @db.VarChar(100)
+  cropVariety         String?     @db.VarChar(100)
+  sowingDate          DateTime    @db.Date
+  expectedHarvestDate DateTime?   @db.Date
+  farmArea            Decimal     @db.Decimal(10, 2)
+  farmAreaUnit        AreaUnit    @default(ACRE)
+  village             String      @db.VarChar(100)
+  district            String      @db.VarChar(100)
+  state               String      @db.VarChar(100)
+  pincode             String      @db.VarChar(6)
+  status              FarmStatus  @default(ACTIVE)
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+
+  // Relationships
+  farmer              Farmer      @relation(fields: [farmerId], references: [id], onDelete: Restrict)
+
+  @@index([farmerId])
+  @@index([cropName])
+  @@index([state, district])
+  @@map("farms")
 }

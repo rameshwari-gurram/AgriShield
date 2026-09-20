@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Shield, Activity, BookOpen, Layers, Users } from 'lucide-react';
+import { Shield, Activity, BookOpen, Layers, Users, Sprout } from 'lucide-react';
 
 export const Navbar: React.FC = () => {
   const location = useLocation();
@@ -51,6 +51,18 @@ export const Navbar: React.FC = () => {
             >
               <Users className="w-4 h-4" />
               <span>Farmers</span>
+            </Link>
+
+            <Link
+              to="/farms"
+              className={`flex items-center space-x-1.5 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                location.pathname.startsWith('/farms')
+                  ? 'bg-emerald-50 text-emerald-700'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+              }`}
+            >
+              <Sprout className="w-4 h-4" />
+              <span>Farms</span>
             </Link>
 
             <Link
