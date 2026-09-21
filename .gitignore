@@ -60,6 +60,7 @@ build/
 
 # Docker & Database
 postgres_data/
+*.dump
 
 # IDE & Editor Files
 .idea/

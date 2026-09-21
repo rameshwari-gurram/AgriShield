@@ -71,10 +71,31 @@ model Farm {
   updatedAt           DateTime    @updatedAt
 
   // Relationships
-  farmer              Farmer      @relation(fields: [farmerId], references: [id], onDelete: Restrict)
+  farmer              Farmer         @relation(fields: [farmerId], references: [id], onDelete: Restrict)
+  boundary            FarmBoundary?
 
   @@index([farmerId])
   @@index([cropName])
   @@index([state, district])
   @@map("farms")
 }
+
+model FarmBoundary {
+  id                     String      @id @default(uuid()) @db.Uuid
+  farmId                 String      @unique @db.Uuid
+  geom                   Unsupported("geometry(Polygon, 4326)")
+  calculatedAreaSqM      Decimal     @db.Decimal(14, 2)
+  calculatedAreaHectares Decimal     @db.Decimal(10, 4)
+  calculatedAreaAcres    Decimal     @db.Decimal(10, 4)
+  centroidLatitude       Decimal     @db.Decimal(9, 6)
+  centroidLongitude      Decimal     @db.Decimal(9, 6)
+  createdAt              DateTime    @default(now())
+  updatedAt              DateTime    @updatedAt
+
+  // Relationships
+  farm                   Farm        @relation(fields: [farmId], references: [id], onDelete: Cascade)
+
+  @@index([geom], type: Gist)
+  @@map("farm_boundaries")
+}
+

@@ -17,14 +17,17 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 import { farmService } from '../../services/farmService';
-import { Farm, FarmStatus, AreaUnit, AREA_UNITS, FARM_STATUSES, UpdateFarmInput } from '../../types';
+import { farmBoundaryService } from '../../services/farmBoundaryService';
+import { Farm, FarmStatus, AreaUnit, AREA_UNITS, FARM_STATUSES, UpdateFarmInput, FarmBoundary } from '../../types';
 import { LoadingSpinner } from '../../components/LoadingSpinner';
+import { FarmBoundaryMap } from '../../components/maps/FarmBoundaryMap';
 
 export const FarmDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
 
   const [farm, setFarm] = useState<Farm | null>(null);
+  const [boundary, setBoundary] = useState<FarmBoundary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -46,8 +49,23 @@ export const FarmDetailPage: React.FC = () => {
       try {
         setLoading(true);
         setError(null);
-        const res = await farmService.getFarmById(id);
-        setFarm(res.data);
+        const [farmRes, boundaryRes] = await Promise.allSettled([
+          farmService.getFarmById(id),
+          farmBoundaryService.getBoundary(id),
+        ]);
+
+        if (farmRes.status === 'fulfilled') {
+          setFarm(farmRes.value.data);
+        } else {
+          const err = farmRes.reason as any;
+          throw new Error(err?.response?.data?.message || err?.message || 'Farm parcel not found');
+        }
+
+        if (boundaryRes.status === 'fulfilled') {
+          setBoundary(boundaryRes.value.data);
+        } else {
+          setBoundary(null);
+        }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : 'Farm parcel not found';
         setError(msg);
@@ -355,6 +373,82 @@ export const FarmDetailPage: React.FC = () => {
         <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-500 leading-relaxed">
           <span className="font-semibold text-slate-700">Platform Identifier Notice: </span>
           The reference number <code>{farm.farmReferenceNumber}</code> is strictly an internal AgriShield platform identifier for parametric indexing and crop risk assessment. It is not a 7/12 extract, survey number, Khasra/Khatauni, or government land title.
+        </div>
+      </div>
+
+      {/* Farm Boundary & Geospatial Monitoring Section */}
+      <div className="space-y-6">
+        <FarmBoundaryMap
+          farmId={farm.id}
+          farmName={farm.farmName}
+          initialBoundary={boundary}
+          onBoundaryUpdated={(updated) => setBoundary(updated)}
+        />
+
+        {/* Spatial Analytics & Area Comparison */}
+        {boundary && (
+          <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-7 shadow-sm space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
+              <div>
+                <h3 className="text-base font-bold text-slate-900">Area Comparison & Spatial Alignment</h3>
+                <p className="text-xs text-slate-500">
+                  Neutral alignment between farmer-declared registry area and digitized PostGIS polygon.
+                </p>
+              </div>
+              <span className="self-start sm:self-auto text-xs font-mono font-bold bg-emerald-50 text-emerald-700 px-3 py-1 rounded-full border border-emerald-200">
+                WGS84 EPSG:4326
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {/* Declared Area */}
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 space-y-1">
+                <div className="text-xs text-slate-400 font-medium">Declared Farm Area</div>
+                <div className="text-xl font-bold text-slate-900 font-mono">
+                  {farm.farmArea.toFixed(2)}{' '}
+                  <span className="text-xs font-semibold text-slate-500 uppercase">{farm.farmAreaUnit}</span>
+                </div>
+                <div className="text-[11px] text-slate-400">Registry declaration</div>
+              </div>
+
+              {/* Mapped Boundary Area */}
+              <div className="p-4 rounded-2xl bg-emerald-50/60 border border-emerald-100 space-y-1">
+                <div className="text-xs text-emerald-800 font-medium">Mapped PostGIS Area</div>
+                <div className="text-xl font-bold text-emerald-950 font-mono">
+                  {boundary.calculatedAreaAcres.toFixed(4)}{' '}
+                  <span className="text-xs font-semibold text-emerald-700">Acres</span>
+                </div>
+                <div className="text-[11px] text-emerald-700 font-mono">
+                  {boundary.calculatedAreaHectares.toFixed(4)} ha ({boundary.calculatedAreaSqM.toLocaleString()} m²)
+                </div>
+              </div>
+
+              {/* Spatial Centroid */}
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 space-y-1">
+                <div className="text-xs text-slate-400 font-medium">Geometric Centroid</div>
+                <div className="text-sm font-bold text-slate-800 font-mono">
+                  {boundary.centroidLatitude}° N, {boundary.centroidLongitude}° E
+                </div>
+                <div className="text-[11px] text-slate-400">Weather & satellite indexing coordinate</div>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-slate-50 rounded-xl text-xs text-slate-500 border border-slate-100 leading-relaxed">
+              <span className="font-semibold text-slate-700">Alignment Context: </span>
+              Minor variances between declared acreage and spatial polygon perimeter are typical due to uncultivated access paths, natural topography, tree canopies, and bunds.
+            </div>
+          </div>
+        )}
+
+        {/* Non-Legal Platform Disclaimer Banner */}
+        <div className="p-5 rounded-2xl bg-amber-50/90 border border-amber-200 text-xs text-amber-900 space-y-1.5 shadow-sm">
+          <div className="font-bold flex items-center gap-2 text-amber-950 text-sm">
+            <ShieldAlert className="w-4 h-4 text-amber-700 flex-shrink-0" />
+            <span>Platform Notice: Geospatial & Boundary Disclaimer</span>
+          </div>
+          <p className="leading-relaxed text-amber-900/90">
+            Mapped farm boundaries and geospatial calculations are utilized strictly for parametric weather indexing, satellite remote sensing, and risk modeling within AgriShield. This boundary does not represent a legal cadastral land survey, 7/12 extract, Khasra, or government record of rights, and does not establish land ownership, title, or insurance claim eligibility.
+          </p>
         </div>
       </div>
 

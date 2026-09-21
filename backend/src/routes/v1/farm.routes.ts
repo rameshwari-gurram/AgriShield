@@ -10,7 +10,12 @@ import {
   farmQuerySchema,
 } from '../../validators/farm.validator.js';
 
+import { farmBoundaryRoutes } from './farmBoundary.routes.js';
+
 const router = Router();
+
+// Mount farm boundary sub-routes (/api/v1/farms/:farmId/boundary)
+router.use('/:farmId/boundary', farmBoundaryRoutes);
 
 // Register new farm
 router.post(

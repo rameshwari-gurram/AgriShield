@@ -11,8 +11,8 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
     "typecheck": "tsc --noEmit",
-    "test": "tsx tests/farmer.unit.test.ts && tsx tests/farm.unit.test.ts",
-    "test:integration": "tsx tests/farmer.integration.test.ts && tsx tests/farm.integration.test.ts"
+    "test": "tsx tests/farmer.unit.test.ts && tsx tests/farm.unit.test.ts && tsx tests/farmBoundary.unit.test.ts",
+    "test:integration": "tsx tests/farmer.integration.test.ts && tsx tests/farm.integration.test.ts && tsx tests/farmBoundary.integration.test.ts"
   },
   "keywords": [
     "agrishield",

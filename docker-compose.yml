@@ -5,7 +5,7 @@ services:
   # PostgreSQL Database Service
   # ============================================================================
   postgres:
-    image: postgres:16-alpine
+    image: postgis/postgis:16-3.4-alpine
     container_name: agrishield_postgres
     restart: unless-stopped
     environment:
