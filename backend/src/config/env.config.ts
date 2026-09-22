@@ -12,6 +12,8 @@ const envSchema = z.object({
   JWT_SECRET: z.string().min(8, 'JWT_SECRET must be at least 8 characters').default('development_jwt_secret_key_12345'),
   JWT_EXPIRES_IN: z.string().default('1d'),
   ML_SERVICE_URL: z.string().url().default('http://localhost:8000'),
+  OPEN_METEO_BASE_URL: z.string().url().default('https://api.open-meteo.com/v1/forecast'),
+  WEATHER_REQUEST_TIMEOUT_MS: z.string().default('8000').transform((val) => parseInt(val, 10)),
 });
 
 const parseEnv = () => {

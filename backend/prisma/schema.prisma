@@ -73,6 +73,7 @@ model Farm {
   // Relationships
   farmer              Farmer         @relation(fields: [farmerId], references: [id], onDelete: Restrict)
   boundary            FarmBoundary?
+  weatherRecords      WeatherRecord[]
 
   @@index([farmerId])
   @@index([cropName])
@@ -97,5 +98,27 @@ model FarmBoundary {
 
   @@index([geom], type: Gist)
   @@map("farm_boundaries")
+}
+
+model WeatherRecord {
+  id              String      @id @default(uuid()) @db.Uuid
+  farmId          String      @db.Uuid
+  observedAt      DateTime    @db.Timestamptz(6)
+  latitude        Decimal     @db.Decimal(9, 6)
+  longitude       Decimal     @db.Decimal(9, 6)
+  temperatureC    Decimal     @db.Decimal(5, 2)
+  humidityPercent Decimal     @db.Decimal(5, 2)
+  rainfallMm      Decimal     @db.Decimal(7, 2)
+  windSpeedKmh    Decimal     @db.Decimal(6, 2)
+  windGustKmh     Decimal     @db.Decimal(6, 2)
+  weatherCode     Int         @db.Integer
+  source          String      @db.VarChar(50)
+  createdAt       DateTime    @default(now())
+
+  farm            Farm        @relation(fields: [farmId], references: [id], onDelete: Cascade)
+
+  @@unique([farmId, observedAt], name: "farm_observation_unique")
+  @@index([farmId, observedAt(sort: Desc)])
+  @@map("weather_records")
 }
 

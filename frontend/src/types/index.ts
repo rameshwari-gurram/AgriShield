@@ -2,6 +2,7 @@ export * from './api';
 export * from './farmer';
 export * from './farm';
 export * from './boundary';
+export * from './weather';
 
 export type ServiceStatusType = 'healthy' | 'degraded' | 'unhealthy' | 'loading' | 'offline';
 

@@ -12,6 +12,10 @@
     "prisma:studio": "prisma studio",
     "typecheck": "tsc --noEmit",
     "test": "tsx tests/farmer.unit.test.ts && tsx tests/farm.unit.test.ts && tsx tests/farmBoundary.unit.test.ts",
+    "test:weather:provider": "tsx tests/weatherProvider.unit.test.ts",
+    "test:weather:service": "tsx tests/weatherService.unit.test.ts",
+    "test:weather:integration": "tsx tests/weather.integration.test.ts",
+    "test:weather:api": "tsx tests/weather.api.integration.test.ts",
     "test:integration": "tsx tests/farmer.integration.test.ts && tsx tests/farm.integration.test.ts && tsx tests/farmBoundary.integration.test.ts"
   },
   "keywords": [

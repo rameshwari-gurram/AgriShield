@@ -11,11 +11,15 @@ import {
 } from '../../validators/farm.validator.js';
 
 import { farmBoundaryRoutes } from './farmBoundary.routes.js';
+import { weatherRoutes } from '../weather.routes.js';
 
 const router = Router();
 
 // Mount farm boundary sub-routes (/api/v1/farms/:farmId/boundary)
 router.use('/:farmId/boundary', farmBoundaryRoutes);
+
+// Mount farm weather sub-routes (/api/v1/farms/:farmId/weather)
+router.use('/:farmId/weather', weatherRoutes);
 
 // Register new farm
 router.post(

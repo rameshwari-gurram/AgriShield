@@ -33,6 +33,18 @@ export class AppError extends Error {
     return new AppError(message, 409, true);
   }
 
+  static tooManyRequests(message: string = 'Too many requests', details?: unknown): AppError {
+    return new AppError(message, 429, true, details);
+  }
+
+  static badGateway(message: string = 'Bad gateway', details?: unknown): AppError {
+    return new AppError(message, 502, true, details);
+  }
+
+  static serviceUnavailable(message: string = 'Service unavailable', details?: unknown): AppError {
+    return new AppError(message, 503, true, details);
+  }
+
   static internal(message: string = 'Internal server error', details?: unknown): AppError {
     return new AppError(message, 500, false, details);
   }

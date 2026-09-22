@@ -15,4 +15,5 @@ router.use('/farms', farmRoutes);
 // router.use('/claims', claimRoutes);
 
 export const v1Routes = router;
+export { weatherRoutes } from './weather.routes.js';
 

@@ -21,6 +21,7 @@ import { farmBoundaryService } from '../../services/farmBoundaryService';
 import { Farm, FarmStatus, AreaUnit, AREA_UNITS, FARM_STATUSES, UpdateFarmInput, FarmBoundary } from '../../types';
 import { LoadingSpinner } from '../../components/LoadingSpinner';
 import { FarmBoundaryMap } from '../../components/maps/FarmBoundaryMap';
+import { FarmWeatherSection } from '../../components/weather/FarmWeatherSection';
 
 export const FarmDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -451,6 +452,20 @@ export const FarmDetailPage: React.FC = () => {
           </p>
         </div>
       </div>
+
+      {/* Hyper-Local Weather Section */}
+      <FarmWeatherSection
+        farmId={farm.id}
+        hasBoundary={Boolean(boundary)}
+        centroidCoordinates={
+          boundary
+            ? {
+                latitude: boundary.centroidLatitude,
+                longitude: boundary.centroidLongitude,
+              }
+            : undefined
+        }
+      />
 
       {/* Edit Modal */}
       {isEditing && (
