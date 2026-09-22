@@ -3,7 +3,7 @@
  * Represents domain DTOs, provider contracts, repository interfaces, and raw external provider types.
  */
 
-import { WeatherRecord } from '@prisma/client';
+import { WeatherRecord, Prisma } from '@prisma/client';
 
 export interface NormalizedWeatherDTO {
   observedAt: Date;
@@ -60,8 +60,38 @@ export interface IWeatherRepository {
     to?: Date,
     limit?: number
   ): Promise<WeatherRecord[]>;
+  getRecordsForAggregation(
+    farmId: string,
+    startTime: Date,
+    endTime: Date
+  ): Promise<WeatherRecord[]>;
   deleteByFarmId?(farmId: string): Promise<number>;
 }
+
+export interface WeatherAggregationResult {
+  farmId: string;
+  observationStart: Date | null;
+  observationEnd: Date | null;
+  recordCount: number;
+  totalRainfall24h: number;
+  maximumRolling3hRainfall: number;
+  maximumTemperatureC: number | null;
+  maximumWindSpeedKmh: number | null;
+  maximumWindGustKmh: number | null;
+  complete24hWindow: boolean;
+  complete3hWindow: boolean;
+  threeHourWindowEnd: Date | null;
+}
+
+export interface WeatherRecordInput {
+  observedAt: Date | string;
+  rainfallMm: number | Prisma.Decimal | string;
+  temperatureC: number | Prisma.Decimal | string;
+  windSpeedKmh: number | Prisma.Decimal | string;
+  windGustKmh: number | Prisma.Decimal | string;
+  farmId?: string;
+}
+
 
 export interface IWeatherProvider {
   readonly providerName: string;

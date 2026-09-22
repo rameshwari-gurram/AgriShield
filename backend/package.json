@@ -16,7 +16,17 @@
     "test:weather:service": "tsx tests/weatherService.unit.test.ts",
     "test:weather:integration": "tsx tests/weather.integration.test.ts",
     "test:weather:api": "tsx tests/weather.api.integration.test.ts",
-    "test:integration": "tsx tests/farmer.integration.test.ts && tsx tests/farm.integration.test.ts && tsx tests/farmBoundary.integration.test.ts"
+    "test:weather:aggregation": "tsx tests/weatherAggregation.unit.test.ts && tsx tests/weatherAggregation.integration.test.ts",
+    "test:risk:db": "tsx tests/riskDatabase.integration.test.ts",
+    "test:risk:engine": "tsx tests/climateRiskRuleEngine.unit.test.ts && tsx tests/climateRiskRuleEngine.integration.test.ts",
+    "test:risk:assessment": "tsx tests/riskAssessment.unit.test.ts && tsx tests/riskAssessment.integration.test.ts",
+    "test:integration": "tsx tests/farmer.integration.test.ts && tsx tests/farm.integration.test.ts && tsx tests/farmBoundary.integration.test.ts",
+    "seed": "tsx prisma/seed.ts"
+  },
+
+
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
   },
   "keywords": [
     "agrishield",
@@ -54,3 +64,4 @@
     "typescript": "^5.5.3"
   }
 }
+

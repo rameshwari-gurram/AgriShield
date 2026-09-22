@@ -127,10 +127,33 @@ export class WeatherRepository implements IWeatherRepository {
   }
 
   /**
+   * Retrieve weather records strictly within a time window for aggregation calculations.
+   * Orders results chronologically ascending (observedAt ASC).
+   * Reads PostgreSQL only; does NOT call external weather providers.
+   */
+  async getRecordsForAggregation(
+    farmId: string,
+    startTime: Date,
+    endTime: Date
+  ): Promise<WeatherRecord[]> {
+    return this.db.weatherRecord.findMany({
+      where: {
+        farmId,
+        observedAt: {
+          gte: startTime,
+          lte: endTime,
+        },
+      },
+      orderBy: { observedAt: 'asc' },
+    });
+  }
+
+  /**
    * Delete weather records for a farm parcel.
    * Used for isolated integration test setup and teardown.
    */
   async deleteByFarmId(farmId: string): Promise<number> {
+
     const { count } = await this.db.weatherRecord.deleteMany({
       where: { farmId },
     });

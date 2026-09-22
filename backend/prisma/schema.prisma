@@ -74,6 +74,7 @@ model Farm {
   farmer              Farmer         @relation(fields: [farmerId], references: [id], onDelete: Restrict)
   boundary            FarmBoundary?
   weatherRecords      WeatherRecord[]
+  riskAssessments     RiskAssessment[]
 
   @@index([farmerId])
   @@index([cropName])
@@ -121,4 +122,109 @@ model WeatherRecord {
   @@index([farmId, observedAt(sort: Desc)])
   @@map("weather_records")
 }
+
+// ============================================================================
+// Module 6: Climate Risk Database and Rule Configuration
+// ============================================================================
+
+enum RiskSeverity {
+  LOW
+  MODERATE
+  HIGH
+  VERY_HIGH
+}
+
+enum RiskLevel {
+  LOW
+  MODERATE
+  HIGH
+}
+
+enum RiskSourceType {
+  OFFICIAL_REFERENCE
+  PROJECT_INDICATOR
+}
+
+enum RiskHazardType {
+  HEAVY_RAINFALL
+  INTENSE_RAINFALL
+  HIGH_TEMPERATURE
+  STRONG_WIND
+}
+
+enum RiskMeasurement {
+  RAINFALL
+  TEMPERATURE
+  WIND_SPEED
+  WIND_GUST
+}
+
+model RiskRule {
+  id                String          @id @default(uuid()) @db.Uuid
+  code              String          @unique @db.VarChar(50)
+  name              String          @db.VarChar(100)
+  description       String?         @db.Text
+  hazardType        RiskHazardType
+  measurement       RiskMeasurement
+  threshold         Decimal         @db.Decimal(10, 2)
+  thresholdUnit     String          @db.VarChar(20)
+  observationWindow String          @db.VarChar(50)
+  severity          RiskSeverity
+  sourceType        RiskSourceType  @default(OFFICIAL_REFERENCE)
+  sourceReference   String          @db.Text
+  isActive          Boolean         @default(true)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  // Relationships
+  riskEvents        RiskEvent[]
+
+  @@index([hazardType])
+  @@index([isActive])
+  @@map("risk_rules")
+}
+
+model RiskAssessment {
+  id                 String          @id @default(uuid()) @db.Uuid
+  farmId             String          @db.Uuid
+  assessedAt         DateTime        @default(now()) @db.Timestamptz(6)
+  overallRisk        RiskLevel
+  assessmentVersion  String          @default("1.0.0") @db.VarChar(20)
+  ruleCount          Int             @db.Integer
+  triggeredRuleCount Int             @db.Integer
+  weatherRecordCount Int             @db.Integer
+  createdAt          DateTime        @default(now())
+
+  // Relationships
+  farm               Farm            @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  riskEvents         RiskEvent[]
+
+  @@index([farmId, assessedAt(sort: Desc)])
+  @@index([overallRisk])
+  @@map("risk_assessments")
+}
+
+model RiskEvent {
+  id             String         @id @default(uuid()) @db.Uuid
+  assessmentId   String         @db.Uuid
+  riskRuleId     String         @db.Uuid
+  observedValue  Decimal?       @db.Decimal(10, 2)
+  thresholdValue Decimal        @db.Decimal(10, 2)
+  unit           String         @db.VarChar(20)
+  severity       RiskSeverity
+  triggered      Boolean
+  explanation    String         @db.Text
+  observedAt     DateTime       @db.Timestamptz(6)
+  createdAt      DateTime       @default(now())
+
+  // Relationships
+  assessment     RiskAssessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  riskRule       RiskRule       @relation(fields: [riskRuleId], references: [id], onDelete: Restrict)
+
+  @@index([assessmentId])
+  @@index([riskRuleId])
+  @@index([triggered])
+  @@map("risk_events")
+}
+
 
