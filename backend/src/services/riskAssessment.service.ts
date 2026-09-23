@@ -21,6 +21,7 @@
 import {
   RiskLevel,
   RiskSeverity,
+  RiskSourceType,
   IRiskRepository,
   RiskAssessmentResponseDTO,
   RiskEventResponseDTO,
@@ -235,6 +236,25 @@ export class RiskAssessmentService {
   }
 
   /**
+   * Retrieve the newest persisted RiskAssessment for a farm parcel.
+   * Throws 404 if the farm has no risk assessments.
+   */
+  async getLatestAssessmentForFarm(farmId: string): Promise<RiskAssessmentResponseDTO> {
+    if (!UUID_REGEX.test(farmId)) {
+      throw AppError.badRequest(`Invalid farm ID format: '${farmId}'`);
+    }
+
+    await this.ensureFarmExists(farmId);
+
+    const assessments = await this.riskRepo.findAssessmentsByFarmId(farmId, 1);
+    if (!assessments || assessments.length === 0) {
+      throw AppError.notFound(`No risk assessments found for farm '${farmId}'`);
+    }
+
+    return this.formatAssessment(assessments[0]);
+  }
+
+  /**
    * Transparent Severity-to-RiskLevel mapping.
    * Evaluates the highest severity among triggered rules:
    *   LOW       → LOW
@@ -310,6 +330,9 @@ export class RiskAssessmentService {
         triggered: evt.triggered,
         status,
         explanation: evt.explanation,
+        sourceType: evt.riskRule?.sourceType ?? RiskSourceType.OFFICIAL_REFERENCE,
+        sourceReference: evt.riskRule?.sourceReference ?? '',
+        observationWindow: evt.riskRule?.observationWindow ?? '',
         observedAt:
           evt.observedAt instanceof Date ? evt.observedAt.toISOString() : String(evt.observedAt),
         createdAt:

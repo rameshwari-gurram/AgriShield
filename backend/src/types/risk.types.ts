@@ -122,6 +122,9 @@ export interface RiskEventResponseDTO {
   triggered: boolean;
   status: RuleEvaluationStatus;
   explanation: string;
+  sourceType: RiskSourceType;
+  sourceReference: string;
+  observationWindow: string;
   observedAt: string;
   createdAt: string;
 }

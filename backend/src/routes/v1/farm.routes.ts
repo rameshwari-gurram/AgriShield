@@ -12,6 +12,7 @@ import {
 
 import { farmBoundaryRoutes } from './farmBoundary.routes.js';
 import { weatherRoutes } from '../weather.routes.js';
+import { farmRiskRoutes } from '../riskAssessment.routes.js';
 
 const router = Router();
 
@@ -20,6 +21,9 @@ router.use('/:farmId/boundary', farmBoundaryRoutes);
 
 // Mount farm weather sub-routes (/api/v1/farms/:farmId/weather)
 router.use('/:farmId/weather', weatherRoutes);
+
+// Mount farm risk assessment sub-routes (/api/v1/farms/:farmId/risk-assessments)
+router.use('/:farmId/risk-assessments', farmRiskRoutes);
 
 // Register new farm
 router.post(

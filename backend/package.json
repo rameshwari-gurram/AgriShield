@@ -20,6 +20,7 @@
     "test:risk:db": "tsx tests/riskDatabase.integration.test.ts",
     "test:risk:engine": "tsx tests/climateRiskRuleEngine.unit.test.ts && tsx tests/climateRiskRuleEngine.integration.test.ts",
     "test:risk:assessment": "tsx tests/riskAssessment.unit.test.ts && tsx tests/riskAssessment.integration.test.ts",
+    "test:risk:api": "tsx tests/riskAssessment.api.integration.test.ts",
     "test:integration": "tsx tests/farmer.integration.test.ts && tsx tests/farm.integration.test.ts && tsx tests/farmBoundary.integration.test.ts",
     "seed": "tsx prisma/seed.ts"
   },
