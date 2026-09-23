@@ -1,6 +1,11 @@
 /**
- * Module 6 Stage 5B-1: Farm Climate Risk Dashboard Foundation
- * Container component for farm-level climate risk monitoring.
+ * Module 6 Stage 5B-2: Farm Climate Risk Dashboard
+ * Orchestrating container component for farm-level climate risk monitoring:
+ * - RiskAssessmentSummaryCard
+ * - InsufficientDataWarning
+ * - RiskEventList (RiskEventCard)
+ * - RiskAssessmentHistory
+ * - HistoricalAssessmentModal
  *
  * NOTE: The frontend NEVER calculates thresholds, severity, or overall risk.
  * The backend is the single source of truth for all risk determinations.
@@ -9,18 +14,18 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   ShieldAlert,
-  AlertTriangle,
   Play,
   RefreshCw,
-  Clock,
-  Layers,
-  Activity,
   AlertCircle,
-  FileText,
 } from 'lucide-react';
 import { riskAssessmentService } from '../../services/riskAssessmentService';
 import { RiskAssessment } from '../../types';
 import { LoadingSpinner } from '../LoadingSpinner';
+import { RiskAssessmentSummaryCard } from './RiskAssessmentSummaryCard';
+import { InsufficientDataWarning } from './InsufficientDataWarning';
+import { RiskEventList } from './RiskEventList';
+import { RiskAssessmentHistory } from './RiskAssessmentHistory';
+import { HistoricalAssessmentModal } from './HistoricalAssessmentModal';
 
 export interface FarmRiskSectionProps {
   farmId: string;
@@ -29,6 +34,9 @@ export interface FarmRiskSectionProps {
   initialError?: string | null;
   initialActionError?: string | null;
   initialRunning?: boolean;
+  initialHistory?: RiskAssessment[];
+  initialHistoryLoading?: boolean;
+  initialHistoryError?: string | null;
 }
 
 export const FarmRiskSection: React.FC<FarmRiskSectionProps> = ({
@@ -38,12 +46,26 @@ export const FarmRiskSection: React.FC<FarmRiskSectionProps> = ({
   initialError = null,
   initialActionError = null,
   initialRunning = false,
+  initialHistory = [],
+  initialHistoryLoading = false,
+  initialHistoryError = null,
 }) => {
+  // Latest assessment state
   const [latestAssessment, setLatestAssessment] = useState<RiskAssessment | null>(initialAssessment);
   const [loadingLatest, setLoadingLatest] = useState(initialLoading);
   const [runningAssessment, setRunningAssessment] = useState(initialRunning);
   const [latestError, setLatestError] = useState<string | null>(initialError);
   const [actionError, setActionError] = useState<string | null>(initialActionError);
+
+  // History state
+  const [history, setHistory] = useState<RiskAssessment[]>(initialHistory);
+  const [loadingHistory, setLoadingHistory] = useState(initialHistoryLoading);
+  const [historyError, setHistoryError] = useState<string | null>(initialHistoryError);
+  const [historyLimit, setHistoryLimit] = useState<number>(10);
+
+  // Modal drilldown state
+  const [selectedAssessmentId, setSelectedAssessmentId] = useState<string | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
 
   // Helper to translate backend errors into user-friendly messages
   const parseErrorMessage = (err: unknown, fallback: string): string => {
@@ -80,18 +102,40 @@ export const FarmRiskSection: React.FC<FarmRiskSectionProps> = ({
         // Expected empty state for farms with zero assessments
         setLatestAssessment(null);
       } else {
-        setLatestError(parseErrorMessage(err, 'Failed to retrieve latest risk assessment.'));
+        setLatestError(parseErrorMessage(err, 'Unable to load climate risk assessment.'));
       }
     } finally {
       setLoadingLatest(false);
     }
   }, [farmId]);
 
+  // Fetch assessment history list
+  const fetchHistory = useCallback(async () => {
+    try {
+      setLoadingHistory(true);
+      setHistoryError(null);
+      const res = await riskAssessmentService.getRiskAssessmentHistory(farmId, historyLimit);
+      setHistory(res.data);
+    } catch {
+      setHistoryError('Unable to load assessment history.');
+    } finally {
+      setLoadingHistory(false);
+    }
+  }, [farmId, historyLimit]);
+
+  // Mount effects
   useEffect(() => {
     if (initialAssessment === null && initialLoading) {
       fetchLatestAssessment();
     }
   }, [fetchLatestAssessment, initialAssessment, initialLoading]);
+
+  useEffect(() => {
+    if (initialHistory.length === 0 && !initialHistoryLoading && !initialHistoryError) {
+      // Auto-fetch history on farm mount or limit change if not overridden
+      fetchHistory();
+    }
+  }, [fetchHistory, initialHistory.length, initialHistoryLoading, initialHistoryError]);
 
   // Handle triggering a new assessment
   const handleRunAssessment = async () => {
@@ -101,29 +145,27 @@ export const FarmRiskSection: React.FC<FarmRiskSectionProps> = ({
       setActionError(null);
       const res = await riskAssessmentService.createRiskAssessment(farmId);
       setLatestAssessment(res.data);
+      // Refresh history list immediately upon successful assessment execution
+      fetchHistory();
     } catch (err: unknown) {
-      setActionError(parseErrorMessage(err, 'Failed to execute risk assessment.'));
+      setActionError(parseErrorMessage(err, 'Unable to run risk assessment. Please try again.'));
     } finally {
       setRunningAssessment(false);
     }
   };
 
-  const formatDateTime = (isoString?: string): string => {
-    if (!isoString) return 'N/A';
-    try {
-      const d = new Date(isoString);
-      if (isNaN(d.getTime())) return isoString;
-      return d.toLocaleString(undefined, {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        timeZoneName: 'short',
-      });
-    } catch {
-      return isoString;
-    }
+  const handleLimitChange = (newLimit: number) => {
+    setHistoryLimit(newLimit);
+  };
+
+  const handleSelectHistoricalAssessment = (assessmentId: string) => {
+    setSelectedAssessmentId(assessmentId);
+    setModalOpen(true);
+  };
+
+  const handleCloseModal = () => {
+    setModalOpen(false);
+    setSelectedAssessmentId(null);
   };
 
   return (
@@ -151,12 +193,12 @@ export const FarmRiskSection: React.FC<FarmRiskSectionProps> = ({
           >
             {runningAssessment ? (
               <>
-                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
                 <span>Assessing Climate Risk...</span>
               </>
             ) : (
               <>
-                <Play className="w-3.5 h-3.5 fill-current" />
+                <Play className="w-3.5 h-3.5 fill-current" aria-hidden="true" />
                 <span>{latestAssessment ? 'Re-run Assessment' : 'Run Assessment'}</span>
               </>
             )}
@@ -168,11 +210,12 @@ export const FarmRiskSection: React.FC<FarmRiskSectionProps> = ({
       {actionError && (
         <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+            <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" aria-hidden="true" />
             <span>{actionError}</span>
           </div>
           <button
             onClick={() => setActionError(null)}
+            aria-label="Dismiss error"
             className="text-rose-500 hover:text-rose-700 text-xs font-bold px-1"
           >
             ✕
@@ -190,7 +233,7 @@ export const FarmRiskSection: React.FC<FarmRiskSectionProps> = ({
         /* Unexpected API Error State */
         <div className="p-6 rounded-2xl bg-rose-50 border border-rose-200 text-center space-y-3">
           <div className="w-10 h-10 mx-auto rounded-full bg-rose-100 flex items-center justify-center text-rose-600">
-            <AlertCircle className="w-5 h-5" />
+            <AlertCircle className="w-5 h-5" aria-hidden="true" />
           </div>
           <div className="space-y-1">
             <h4 className="text-sm font-bold text-rose-900">Failed to Load Risk Assessment</h4>
@@ -200,7 +243,7 @@ export const FarmRiskSection: React.FC<FarmRiskSectionProps> = ({
             onClick={fetchLatestAssessment}
             className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-white border border-rose-300 text-xs font-bold text-rose-700 hover:bg-rose-50 transition shadow-sm"
           >
-            <RefreshCw className="w-3.5 h-3.5" />
+            <RefreshCw className="w-3.5 h-3.5" aria-hidden="true" />
             <span>Retry</span>
           </button>
         </div>
@@ -208,7 +251,7 @@ export const FarmRiskSection: React.FC<FarmRiskSectionProps> = ({
         /* Expected Empty State (404 on /latest) */
         <div className="p-8 text-center space-y-4 rounded-2xl bg-slate-50 border border-slate-200/80">
           <div className="w-12 h-12 mx-auto rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
-            <ShieldAlert className="w-6 h-6" />
+            <ShieldAlert className="w-6 h-6" aria-hidden="true" />
           </div>
           <div className="max-w-md mx-auto space-y-1">
             <h4 className="text-sm font-bold text-slate-800">No Assessment Found</h4>
@@ -223,163 +266,44 @@ export const FarmRiskSection: React.FC<FarmRiskSectionProps> = ({
           >
             {runningAssessment ? (
               <>
-                <RefreshCw className="w-4 h-4 animate-spin" />
+                <RefreshCw className="w-4 h-4 animate-spin" aria-hidden="true" />
                 <span>Assessing Climate Risk...</span>
               </>
             ) : (
               <>
-                <Play className="w-4 h-4 fill-current" />
+                <Play className="w-4 h-4 fill-current" aria-hidden="true" />
                 <span>Run Initial Risk Assessment</span>
               </>
             )}
           </button>
         </div>
       ) : (
-        /* Populated Risk Assessment Foundation */
-        <div className="space-y-5">
-          {/* Insufficient Data Warning Banner */}
-          {latestAssessment.hasInsufficientDataCoverage && (
-            <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 flex items-start gap-3 shadow-sm">
-              <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
-              <div className="space-y-1 text-xs">
-                <div className="font-bold text-amber-950 flex items-center gap-1.5">
-                  <span>Incomplete Weather Data</span>
-                </div>
-                <p className="leading-relaxed text-amber-900">
-                  Some climate-risk rules could not be evaluated because the required weather observation window is incomplete (fewer than 24 consecutive hourly records).
-                </p>
-                <p className="font-semibold text-amber-950">
-                  The displayed LOW risk must not be interpreted as confirmed low risk.
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Assessment Summary Overview */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {/* Overall Risk Card */}
-            <div
-              className={`p-5 rounded-2xl border space-y-1 ${
-                latestAssessment.overallRisk === 'HIGH'
-                  ? 'bg-rose-50/70 border-rose-200'
-                  : latestAssessment.overallRisk === 'MODERATE'
-                  ? 'bg-amber-50/70 border-amber-200'
-                  : latestAssessment.hasInsufficientDataCoverage
-                  ? 'bg-amber-50/70 border-amber-300'
-                  : 'bg-emerald-50/70 border-emerald-200'
-              }`}
-            >
-              <div
-                className={`text-xs font-semibold uppercase tracking-wider ${
-                  latestAssessment.overallRisk === 'HIGH'
-                    ? 'text-rose-700'
-                    : latestAssessment.overallRisk === 'MODERATE'
-                    ? 'text-amber-700'
-                    : latestAssessment.hasInsufficientDataCoverage
-                    ? 'text-amber-800'
-                    : 'text-emerald-700'
-                }`}
-              >
-                Overall Risk
-              </div>
-              <div
-                className={`text-2xl font-black ${
-                  latestAssessment.overallRisk === 'HIGH'
-                    ? 'text-rose-900'
-                    : latestAssessment.overallRisk === 'MODERATE'
-                    ? 'text-amber-900'
-                    : latestAssessment.hasInsufficientDataCoverage
-                    ? 'text-amber-900'
-                    : 'text-emerald-900'
-                }`}
-              >
-                {latestAssessment.overallRisk === 'LOW' && latestAssessment.hasInsufficientDataCoverage
-                  ? 'LOW (UNCONFIRMED)'
-                  : latestAssessment.overallRisk}
-              </div>
-              <div
-                className={`text-xs font-medium ${
-                  latestAssessment.overallRisk === 'HIGH'
-                    ? 'text-rose-600'
-                    : latestAssessment.overallRisk === 'MODERATE'
-                    ? 'text-amber-600'
-                    : latestAssessment.hasInsufficientDataCoverage
-                    ? 'text-amber-700'
-                    : 'text-emerald-600'
-                }`}
-              >
-                {latestAssessment.overallRisk === 'HIGH'
-                  ? 'Severe climate hazard triggered'
-                  : latestAssessment.overallRisk === 'MODERATE'
-                  ? 'Moderate climate hazard triggered'
-                  : latestAssessment.hasInsufficientDataCoverage
-                  ? 'Incomplete window: low risk unconfirmed'
-                  : 'No thresholds triggered across complete window'}
-              </div>
-            </div>
-
-            {/* Assessment Timestamp & Version Card */}
-            <div className="p-5 rounded-2xl bg-slate-50 border border-slate-100 space-y-1">
-              <div className="flex items-center gap-1.5 text-xs text-slate-400 font-medium">
-                <Clock className="w-3.5 h-3.5 text-slate-500" />
-                <span>Assessed Date</span>
-              </div>
-              <div className="text-sm font-bold text-slate-900">
-                {formatDateTime(latestAssessment.assessedAt)}
-              </div>
-              <div className="text-xs text-slate-500 font-mono">
-                Version: {latestAssessment.assessmentVersion}
-              </div>
-            </div>
-
-            {/* Rules Triggered Card */}
-            <div className="p-5 rounded-2xl bg-slate-50 border border-slate-100 space-y-1">
-              <div className="flex items-center gap-1.5 text-xs text-slate-400 font-medium">
-                <Activity className="w-3.5 h-3.5 text-slate-500" />
-                <span>Rules Triggered</span>
-              </div>
-              <div className="text-2xl font-black text-slate-900 font-mono">
-                {latestAssessment.triggeredRuleCount}
-                <span className="text-xs font-semibold text-slate-400 ml-1">
-                  / {latestAssessment.ruleCount}
-                </span>
-              </div>
-              <div className="text-xs text-slate-500">
-                Evaluated active IMD rules
-              </div>
-            </div>
-
-            {/* Weather Records Evaluated Card */}
-            <div className="p-5 rounded-2xl bg-slate-50 border border-slate-100 space-y-1">
-              <div className="flex items-center gap-1.5 text-xs text-slate-400 font-medium">
-                <Layers className="w-3.5 h-3.5 text-slate-500" />
-                <span>Weather Records</span>
-              </div>
-              <div className="text-2xl font-black text-slate-900 font-mono">
-                {latestAssessment.weatherRecordCount}
-              </div>
-              <div className="text-xs text-slate-500">
-                Hourly observations evaluated
-              </div>
-            </div>
-          </div>
-
-          {/* Assessment Summary Narrative */}
-          <div className="p-4 rounded-xl bg-slate-50 border border-slate-100 text-xs text-slate-700 leading-relaxed flex items-start gap-2.5">
-            <FileText className="w-4 h-4 text-slate-400 flex-shrink-0 mt-0.5" />
-            <div>
-              <span className="font-semibold text-slate-900">Summary: </span>
-              {latestAssessment.summary}
-            </div>
-          </div>
-
-          {/* Non-Legal Platform Disclaimer */}
-          <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-[11px] text-slate-500 leading-relaxed">
-            <span className="font-semibold text-slate-700">Parametric Evaluation Notice: </span>
-            Climate risk assessment is an objective physical evaluation against configured scientific thresholds. It is strictly not an insurance claim approval, insurance policy eligibility determination, legal land ownership verification, or payout authorization.
-          </div>
+        /* Populated Risk Assessment Dashboard */
+        <div className="space-y-6">
+          <InsufficientDataWarning
+            hasInsufficientDataCoverage={latestAssessment.hasInsufficientDataCoverage}
+          />
+          <RiskAssessmentSummaryCard assessment={latestAssessment} />
+          <RiskEventList events={latestAssessment.events || []} />
+          <RiskAssessmentHistory
+            farmId={farmId}
+            history={history}
+            loading={loadingHistory}
+            error={historyError}
+            limit={historyLimit}
+            onLimitChange={handleLimitChange}
+            onSelectAssessment={handleSelectHistoricalAssessment}
+            onRetry={fetchHistory}
+          />
         </div>
       )}
+
+      {/* Historical Assessment Modal */}
+      <HistoricalAssessmentModal
+        assessmentId={selectedAssessmentId}
+        isOpen={modalOpen}
+        onClose={handleCloseModal}
+      />
     </div>
   );
 };
