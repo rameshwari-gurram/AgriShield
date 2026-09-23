@@ -22,6 +22,7 @@ import { Farm, FarmStatus, AreaUnit, AREA_UNITS, FARM_STATUSES, UpdateFarmInput,
 import { LoadingSpinner } from '../../components/LoadingSpinner';
 import { FarmBoundaryMap } from '../../components/maps/FarmBoundaryMap';
 import { FarmWeatherSection } from '../../components/weather/FarmWeatherSection';
+import { FarmRiskSection } from '../../components/risk/FarmRiskSection';
 
 export const FarmDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -466,6 +467,9 @@ export const FarmDetailPage: React.FC = () => {
             : undefined
         }
       />
+
+      {/* Climate Risk Assessment Section */}
+      <FarmRiskSection farmId={farm.id} />
 
       {/* Edit Modal */}
       {isEditing && (

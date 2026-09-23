@@ -3,6 +3,7 @@ export * from './farmer';
 export * from './farm';
 export * from './boundary';
 export * from './weather';
+export * from './risk';
 
 export type ServiceStatusType = 'healthy' | 'degraded' | 'unhealthy' | 'loading' | 'offline';
 
