@@ -21,10 +21,12 @@ import { RiskAssessment } from '../../types';
 
 export interface RiskAssessmentSummaryCardProps {
   assessment: RiskAssessment;
+  onViewProvenance?: (assessment: RiskAssessment) => void;
 }
 
 export const RiskAssessmentSummaryCard: React.FC<RiskAssessmentSummaryCardProps> = ({
   assessment,
+  onViewProvenance,
 }) => {
   const formatDateTime = (isoString?: string): string => {
     if (!isoString) return 'N/A';
@@ -174,13 +176,26 @@ export const RiskAssessmentSummaryCard: React.FC<RiskAssessmentSummaryCardProps>
         </div>
       </div>
 
-      {/* Assessment Summary Narrative */}
-      <div className="p-4 rounded-xl bg-slate-50 border border-slate-100 text-xs text-slate-700 leading-relaxed flex items-start gap-2.5">
-        <FileText className="w-4 h-4 text-slate-400 flex-shrink-0 mt-0.5" aria-hidden="true" />
-        <div>
-          <span className="font-semibold text-slate-900">Summary: </span>
-          {assessment.summary}
+      {/* Assessment Summary Narrative & Actions */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl bg-slate-50 border border-slate-100 text-xs text-slate-700">
+        <div className="flex items-start gap-2.5">
+          <FileText className="w-4 h-4 text-slate-400 flex-shrink-0 mt-0.5" aria-hidden="true" />
+          <div>
+            <span className="font-semibold text-slate-900">Summary: </span>
+            {assessment.summary}
+          </div>
         </div>
+
+        {onViewProvenance && (
+          <button
+            onClick={() => onViewProvenance(assessment)}
+            className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 transition text-xs font-semibold shadow-sm self-start sm:self-center"
+            title="View assessment provenance and technical audit details"
+          >
+            <FileText className="w-3.5 h-3.5 text-slate-500" />
+            <span>View Provenance</span>
+          </button>
+        )}
       </div>
 
       {/* Non-Legal Parametric Platform Disclaimer */}

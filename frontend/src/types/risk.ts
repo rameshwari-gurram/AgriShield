@@ -42,6 +42,11 @@ export interface RiskEvent {
 
   thresholdValue: number;
   unit: string;
+
+  // Stage 5B-3 DTO contract field aliases
+  threshold?: number;
+  thresholdUnit?: string;
+
   observationWindow: string;
 
   observedValue: number | null;
@@ -77,3 +82,6 @@ export interface RiskAssessment {
 
   createdAt: string;
 }
+
+export type RiskAssessmentResponseDTO = RiskAssessment;
+export type RiskEventResponseDTO = RiskEvent;

@@ -19,6 +19,7 @@ export interface HistoricalAssessmentModalProps {
   assessmentId: string | null;
   isOpen: boolean;
   onClose: () => void;
+  onViewProvenance?: (assessment: RiskAssessment) => void;
   // Optional test overrides for deterministic unit testing
   initialDetail?: RiskAssessment | null;
   initialLoading?: boolean;
@@ -29,6 +30,7 @@ export const HistoricalAssessmentModal: React.FC<HistoricalAssessmentModalProps>
   assessmentId,
   isOpen,
   onClose,
+  onViewProvenance,
   initialDetail = null,
   initialLoading = false,
   initialError = null,
@@ -111,13 +113,24 @@ export const HistoricalAssessmentModal: React.FC<HistoricalAssessmentModalProps>
             </div>
           </div>
 
-          <button
-            onClick={onClose}
-            aria-label="Close modal"
-            className="w-8 h-8 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-600 flex items-center justify-center transition"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            {assessment && onViewProvenance && (
+              <button
+                onClick={() => onViewProvenance(assessment)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 transition text-xs font-semibold shadow-sm"
+                title="View assessment provenance details"
+              >
+                <span>View Provenance</span>
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              aria-label="Close modal"
+              className="w-8 h-8 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-600 flex items-center justify-center transition"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Modal Content */}
@@ -148,7 +161,7 @@ export const HistoricalAssessmentModal: React.FC<HistoricalAssessmentModalProps>
             <InsufficientDataWarning
               hasInsufficientDataCoverage={assessment.hasInsufficientDataCoverage}
             />
-            <RiskAssessmentSummaryCard assessment={assessment} />
+            <RiskAssessmentSummaryCard assessment={assessment} onViewProvenance={onViewProvenance} />
             <RiskEventList events={assessment.events || []} />
           </div>
         ) : null}

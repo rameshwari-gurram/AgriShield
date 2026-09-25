@@ -26,6 +26,7 @@ import { InsufficientDataWarning } from './InsufficientDataWarning';
 import { RiskEventList } from './RiskEventList';
 import { RiskAssessmentHistory } from './RiskAssessmentHistory';
 import { HistoricalAssessmentModal } from './HistoricalAssessmentModal';
+import { RiskAssessmentAuditModal } from './RiskAssessmentAuditModal';
 
 export interface FarmRiskSectionProps {
   farmId: string;
@@ -168,6 +169,20 @@ export const FarmRiskSection: React.FC<FarmRiskSectionProps> = ({
     setSelectedAssessmentId(null);
   };
 
+  // Provenance modal state
+  const [provenanceAssessment, setProvenanceAssessment] = useState<RiskAssessment | null>(null);
+  const [provenanceModalOpen, setProvenanceModalOpen] = useState(false);
+
+  const handleOpenProvenance = (assessment: RiskAssessment) => {
+    setProvenanceAssessment(assessment);
+    setProvenanceModalOpen(true);
+  };
+
+  const handleCloseProvenance = () => {
+    setProvenanceModalOpen(false);
+    setProvenanceAssessment(null);
+  };
+
   return (
     <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-7 shadow-sm space-y-6">
       {/* Section Header */}
@@ -283,7 +298,10 @@ export const FarmRiskSection: React.FC<FarmRiskSectionProps> = ({
           <InsufficientDataWarning
             hasInsufficientDataCoverage={latestAssessment.hasInsufficientDataCoverage}
           />
-          <RiskAssessmentSummaryCard assessment={latestAssessment} />
+          <RiskAssessmentSummaryCard
+            assessment={latestAssessment}
+            onViewProvenance={handleOpenProvenance}
+          />
           <RiskEventList events={latestAssessment.events || []} />
           <RiskAssessmentHistory
             farmId={farmId}
@@ -303,6 +321,14 @@ export const FarmRiskSection: React.FC<FarmRiskSectionProps> = ({
         assessmentId={selectedAssessmentId}
         isOpen={modalOpen}
         onClose={handleCloseModal}
+        onViewProvenance={handleOpenProvenance}
+      />
+
+      {/* Assessment Provenance View Modal */}
+      <RiskAssessmentAuditModal
+        assessment={provenanceAssessment}
+        isOpen={provenanceModalOpen}
+        onClose={handleCloseProvenance}
       />
     </div>
   );

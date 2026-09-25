@@ -12,8 +12,11 @@ import {
   AlertCircle,
   User,
   Filter,
+  ShieldAlert,
 } from 'lucide-react';
 import { farmService } from '../../services/farmService';
+import { riskAssessmentService } from '../../services/riskAssessmentService';
+import { FarmRiskBadge, FarmRiskStatus } from '../../components/risk/FarmRiskBadge';
 import { Farm, FarmStatus, FARM_STATUSES } from '../../types';
 import { LoadingSpinner } from '../../components/LoadingSpinner';
 
@@ -21,6 +24,9 @@ export const FarmListPage: React.FC = () => {
   const [farms, setFarms] = useState<Farm[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const [farmRiskMap, setFarmRiskMap] = useState<Record<string, FarmRiskStatus>>({});
+  const [riskFilter, setRiskFilter] = useState<'ALL' | FarmRiskStatus>('ALL');
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<FarmStatus | 'ALL'>('ALL');
@@ -56,6 +62,80 @@ export const FarmListPage: React.FC = () => {
   useEffect(() => {
     fetchFarms(search, statusFilter, page);
   }, [fetchFarms, statusFilter, page]);
+
+  // Fetch latest climate risk assessments for currently displayed farms
+  useEffect(() => {
+    if (farms.length === 0) {
+      setFarmRiskMap({});
+      return;
+    }
+
+    let isMounted = true;
+
+    setFarmRiskMap((prev) => {
+      const initial: Record<string, FarmRiskStatus> = { ...prev };
+      for (const farm of farms) {
+        if (!initial[farm.id]) {
+          initial[farm.id] = 'LOADING';
+        }
+      }
+      return initial;
+    });
+
+    const fetchRiskForDisplayedFarms = async () => {
+      const results = await Promise.allSettled(
+        farms.map((farm) => riskAssessmentService.getLatestRiskAssessment(farm.id))
+      );
+
+      if (!isMounted) return;
+
+      const updatedMap: Record<string, FarmRiskStatus> = {};
+      results.forEach((res, index) => {
+        const farmId = farms[index].id;
+        if (res.status === 'fulfilled') {
+          const assessment = res.value.data;
+          if (assessment.overallRisk === 'HIGH') {
+            updatedMap[farmId] = 'HIGH';
+          } else if (assessment.overallRisk === 'MODERATE') {
+            updatedMap[farmId] = 'MODERATE';
+          } else if (assessment.overallRisk === 'LOW') {
+            updatedMap[farmId] = assessment.hasInsufficientDataCoverage
+              ? 'LOW_UNCONFIRMED'
+              : 'LOW';
+          } else {
+            updatedMap[farmId] = 'RISK_UNAVAILABLE';
+          }
+        } else {
+          const err = res.reason as any;
+          const is404 =
+            err?.response?.status === 404 ||
+            err?.statusCode === 404 ||
+            err?.message?.includes('404') ||
+            (err instanceof Error && err.message.toLowerCase().includes('not found'));
+
+          if (is404) {
+            updatedMap[farmId] = 'NO_ASSESSMENT';
+          } else {
+            updatedMap[farmId] = 'RISK_UNAVAILABLE';
+          }
+        }
+      });
+
+      setFarmRiskMap(updatedMap);
+    };
+
+    fetchRiskForDisplayedFarms();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [farms]);
+
+  const displayedFarms = farms.filter((farm) => {
+    if (riskFilter === 'ALL') return true;
+    const status = farmRiskMap[farm.id] || 'LOADING';
+    return status === riskFilter;
+  });
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -156,6 +236,36 @@ export const FarmListPage: React.FC = () => {
             </button>
           ))}
         </div>
+
+        {/* Risk Filter Tabs */}
+        <div className="flex items-center space-x-1.5 p-1 bg-slate-100 rounded-xl flex-shrink-0 self-start flex-wrap">
+          <div className="px-2 text-xs text-slate-400 flex items-center gap-1">
+            <ShieldAlert className="w-3.5 h-3.5" />
+            <span className="hidden lg:inline">Risk:</span>
+          </div>
+          {(
+            [
+              { code: 'ALL', label: 'All' },
+              { code: 'HIGH', label: 'High' },
+              { code: 'MODERATE', label: 'Moderate' },
+              { code: 'LOW', label: 'Low' },
+              { code: 'LOW_UNCONFIRMED', label: 'Unconfirmed' },
+              { code: 'NO_ASSESSMENT', label: 'Unassessed' },
+            ] as const
+          ).map((rf) => (
+            <button
+              key={rf.code}
+              onClick={() => setRiskFilter(rf.code)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                riskFilter === rf.code
+                  ? 'bg-white text-emerald-800 shadow-sm font-bold'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              {rf.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Error Alert */}
@@ -213,10 +323,27 @@ export const FarmListPage: React.FC = () => {
         </div>
       )}
 
+      {/* Risk Filter Empty State */}
+      {!loading && farms.length > 0 && displayedFarms.length === 0 && (
+        <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center space-y-3 shadow-sm">
+          <ShieldAlert className="w-8 h-8 text-amber-500 mx-auto" />
+          <h3 className="font-bold text-base text-slate-900">No Farms Match Risk Filter</h3>
+          <p className="text-slate-500 text-xs max-w-sm mx-auto">
+            No farms on the current page match the selected climate risk filter.
+          </p>
+          <button
+            onClick={() => setRiskFilter('ALL')}
+            className="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition"
+          >
+            Clear Risk Filter
+          </button>
+        </div>
+      )}
+
       {/* Farms List */}
-      {farms.length > 0 && (
+      {displayedFarms.length > 0 && (
         <div className="grid grid-cols-1 gap-4">
-          {farms.map((farm) => (
+          {displayedFarms.map((farm) => (
             <div
               key={farm.id}
               className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-sm hover:border-emerald-200 hover:shadow-md transition space-y-4"
@@ -225,6 +352,7 @@ export const FarmListPage: React.FC = () => {
                 <div className="flex items-center gap-3 flex-wrap">
                   <h3 className="text-lg font-bold text-slate-900">{farm.farmName}</h3>
                   {getStatusBadge(farm.status)}
+                  <FarmRiskBadge status={farmRiskMap[farm.id] || 'LOADING'} />
                   <span className="font-mono text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-medium">
                     {farm.farmReferenceNumber}
                   </span>
