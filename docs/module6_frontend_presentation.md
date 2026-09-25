@@ -122,7 +122,24 @@ Displays the project disclaimer:
 
 ---
 
-## 6. Verification & Test Commands
+## 6. Stage 6: Macro Portfolio Metrics & Active Rules Catalog
+
+### A. Portfolio Risk Summary Card (`PortfolioRiskSummaryCard.tsx`)
+- **Macro Overview Widget:** Mounted on `FarmListPage.tsx` above the farm registry table.
+- **Key Metrics Displayed:** Total Active Farms (`FarmStatus.ACTIVE`), Assessed Farms, High Risk, Moderate Risk, Low Risk (Confirmed), Low Risk (Unconfirmed due to incomplete window), and Unassessed.
+- **Resilient Presentation:** Failure or loading delay of the macro summary never blocks the rendering of individual farm rows or per-farm status badges. Includes loading skeletons and retry controls.
+
+### B. Active Parametric Rules Catalog Modal (`RiskRuleCatalogModal.tsx`)
+- **Read-Only Transparency:** Triggered via "View Parametric Rules" button in `FarmListPage.tsx` header.
+- **Dynamic Content:** Consumes `GET /api/v1/risk-rules` directly from backend engine. Does not hard-code rule counts.
+- **Grouping:** Groups rules by observation window (`24_HOURS` vs `3_HOURS`).
+- **Displays:** Rule name, code, observation window, threshold, threshold unit, severity, and official IMD source reference citations.
+- **Accessibility:** Keyboard escape dismissal, backdrop click handling, `role="dialog"`, `aria-modal="true"`.
+- **Mandatory Disclaimer:** Displays the standard AgriShield parametric risk indicator disclaimer.
+
+---
+
+## 7. Verification & Test Commands
 
 ### Run Frontend Tests
 ```bash
@@ -132,8 +149,9 @@ npm test
 Executes:
 - `tests/riskAssessment.frontend.test.tsx` (76 Stage 5B-2 presentation tests)
 - `tests/riskPortfolio.frontend.test.tsx` (25 Stage 5B-3 portfolio and provenance tests)
+- `tests/riskStage6.frontend.test.tsx` (28 Stage 6 summary and catalog tests)
 
-Total: **101 tests passed**.
+Total: **129 tests passed**.
 
 ### Run Frontend Build & Typecheck
 ```bash
@@ -143,9 +161,12 @@ npm run build
 ```
 Confirms clean TypeScript compilation and production bundle generation.
 
-### Run Backend Typecheck
+### Run Backend Build, Typecheck & Tests
 ```bash
 cd backend
 npm run typecheck
+npm run build
+npm test
+npm run test:risk:stage6
 ```
-Confirms 0 type errors in backend codebase.
+Confirms 0 type errors, clean build, and passing Stage 6 unit and API integration tests.

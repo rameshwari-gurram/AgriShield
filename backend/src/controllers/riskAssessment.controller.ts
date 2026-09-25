@@ -90,6 +90,22 @@ export class RiskAssessmentController {
       next(error);
     }
   }
+
+  /**
+   * GET /api/v1/risk-assessments/portfolio-summary
+   * Retrieves macro-level risk summary metrics across all active farm parcels.
+   * Returns HTTP 200 OK.
+   */
+  async getPortfolioSummary(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const result = await this.service.getPortfolioRiskSummary();
+      res.status(200).json(
+        ApiResponse.success(result, 'Portfolio risk summary retrieved successfully', req.correlationId)
+      );
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const riskAssessmentController = new RiskAssessmentController();

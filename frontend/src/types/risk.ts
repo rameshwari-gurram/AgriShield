@@ -85,3 +85,35 @@ export interface RiskAssessment {
 
 export type RiskAssessmentResponseDTO = RiskAssessment;
 export type RiskEventResponseDTO = RiskEvent;
+
+export interface PortfolioRiskSummaryDTO {
+  totalFarms: number;
+  assessedFarms: number;
+  unassessedFarms: number;
+  highRiskCount: number;
+  moderateRiskCount: number;
+  lowRiskCount: number;
+  lowRiskUnconfirmedCount: number;
+  generatedAt: string;
+}
+
+export interface RiskRuleDTO {
+  id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  hazardType: RiskHazardType;
+  measurement: RiskMeasurement;
+  threshold: number;
+  thresholdUnit: string;
+  observationWindow: string;
+  severity: RiskSeverity;
+  sourceType: RiskSourceType;
+  sourceReference: string;
+  isActive: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export type RiskRuleResponseDTO = RiskRuleDTO;
+

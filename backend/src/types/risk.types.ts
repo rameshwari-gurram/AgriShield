@@ -144,6 +144,35 @@ export interface RiskAssessmentResponseDTO {
   createdAt: string;
 }
 
+export interface RiskRuleResponseDTO {
+  id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  hazardType: RiskHazardType;
+  measurement: RiskMeasurement;
+  threshold: number;
+  thresholdUnit: string;
+  observationWindow: string;
+  severity: RiskSeverity;
+  sourceType: RiskSourceType;
+  sourceReference: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PortfolioRiskSummaryDTO {
+  totalFarms: number;
+  assessedFarms: number;
+  unassessedFarms: number;
+  highRiskCount: number;
+  moderateRiskCount: number;
+  lowRiskCount: number;
+  lowRiskUnconfirmedCount: number;
+  generatedAt: string;
+}
+
 export interface IRiskRepository {
   findActiveRules(): Promise<RiskRule[]>;
   findRuleByCode(code: string): Promise<RiskRule | null>;
@@ -154,4 +183,6 @@ export interface IRiskRepository {
   findAssessmentById(id: string): Promise<RiskAssessmentWithEvents | null>;
   findAssessmentsByFarmId(farmId: string, limit?: number): Promise<RiskAssessmentWithEvents[]>;
   deleteAssessmentsByFarmId?(farmId: string): Promise<number>;
+  getLatestAssessmentsForActiveFarms(): Promise<RiskAssessmentWithEvents[]>;
 }
+

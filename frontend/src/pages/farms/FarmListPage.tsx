@@ -13,11 +13,14 @@ import {
   User,
   Filter,
   ShieldAlert,
+  BookOpen,
 } from 'lucide-react';
 import { farmService } from '../../services/farmService';
 import { riskAssessmentService } from '../../services/riskAssessmentService';
 import { FarmRiskBadge, FarmRiskStatus } from '../../components/risk/FarmRiskBadge';
-import { Farm, FarmStatus, FARM_STATUSES } from '../../types';
+import { PortfolioRiskSummaryCard } from '../../components/risk/PortfolioRiskSummaryCard';
+import { RiskRuleCatalogModal } from '../../components/risk/RiskRuleCatalogModal';
+import { Farm, FarmStatus, FARM_STATUSES, PortfolioRiskSummaryDTO } from '../../types';
 import { LoadingSpinner } from '../../components/LoadingSpinner';
 
 export const FarmListPage: React.FC = () => {
@@ -27,6 +30,12 @@ export const FarmListPage: React.FC = () => {
 
   const [farmRiskMap, setFarmRiskMap] = useState<Record<string, FarmRiskStatus>>({});
   const [riskFilter, setRiskFilter] = useState<'ALL' | FarmRiskStatus>('ALL');
+
+  // Stage 6: Portfolio macro summary state & rule catalog modal state
+  const [portfolioSummary, setPortfolioSummary] = useState<PortfolioRiskSummaryDTO | null>(null);
+  const [portfolioLoading, setPortfolioLoading] = useState(true);
+  const [portfolioError, setPortfolioError] = useState<string | null>(null);
+  const [isRuleCatalogOpen, setIsRuleCatalogOpen] = useState(false);
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<FarmStatus | 'ALL'>('ALL');
@@ -62,6 +71,25 @@ export const FarmListPage: React.FC = () => {
   useEffect(() => {
     fetchFarms(search, statusFilter, page);
   }, [fetchFarms, statusFilter, page]);
+
+  // Stage 6: Fetch portfolio-level macro risk summary
+  const fetchPortfolioSummary = useCallback(async () => {
+    try {
+      setPortfolioLoading(true);
+      setPortfolioError(null);
+      const res = await riskAssessmentService.getPortfolioRiskSummary();
+      setPortfolioSummary(res.data);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to fetch portfolio risk summary';
+      setPortfolioError(msg);
+    } finally {
+      setPortfolioLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchPortfolioSummary();
+  }, [fetchPortfolioSummary]);
 
   // Fetch latest climate risk assessments for currently displayed farms
   useEffect(() => {
@@ -172,6 +200,15 @@ export const FarmListPage: React.FC = () => {
 
         <div className="flex items-center space-x-3">
           <button
+            onClick={() => setIsRuleCatalogOpen(true)}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm shadow-sm transition"
+            data-testid="view-parametric-rules-btn"
+          >
+            <BookOpen className="w-4 h-4 text-emerald-600" />
+            <span className="hidden sm:inline">View Parametric Rules</span>
+            <span className="sm:hidden">Rules</span>
+          </button>
+          <button
             onClick={() => fetchFarms(search, statusFilter, page)}
             disabled={loading}
             className="p-2.5 rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition shadow-sm disabled:opacity-50"
@@ -188,6 +225,15 @@ export const FarmListPage: React.FC = () => {
           </Link>
         </div>
       </div>
+
+      {/* Stage 6: Portfolio Risk Macro KPI Overview */}
+      <PortfolioRiskSummaryCard
+        summary={portfolioSummary}
+        loading={portfolioLoading}
+        error={portfolioError}
+        onRetry={fetchPortfolioSummary}
+        onViewRules={() => setIsRuleCatalogOpen(true)}
+      />
 
       {/* Search & Status Filters Bar */}
       <div className="flex flex-col md:flex-row gap-4">
@@ -464,6 +510,12 @@ export const FarmListPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Stage 6: Active Parametric Risk Rules Catalog Modal */}
+      <RiskRuleCatalogModal
+        isOpen={isRuleCatalogOpen}
+        onClose={() => setIsRuleCatalogOpen(false)}
+      />
     </div>
   );
 };

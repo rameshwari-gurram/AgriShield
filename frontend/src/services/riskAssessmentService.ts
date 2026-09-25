@@ -7,7 +7,7 @@
  */
 
 import { apiClient } from './api';
-import { ApiResponse, RiskAssessment } from '../types';
+import { ApiResponse, RiskAssessment, RiskRuleDTO, PortfolioRiskSummaryDTO } from '../types';
 
 export const riskAssessmentService = {
   /**
@@ -59,6 +59,26 @@ export const riskAssessmentService = {
   async getRiskAssessmentById(assessmentId: string): Promise<ApiResponse<RiskAssessment>> {
     const response = await apiClient.get<ApiResponse<RiskAssessment>>(
       `/risk-assessments/${assessmentId}`
+    );
+    return response.data;
+  },
+
+  /**
+   * Retrieve active parametric risk rules from the backend.
+   * Calls GET /api/v1/risk-rules
+   */
+  async getActiveRules(): Promise<ApiResponse<RiskRuleDTO[]>> {
+    const response = await apiClient.get<ApiResponse<RiskRuleDTO[]>>('/risk-rules');
+    return response.data;
+  },
+
+  /**
+   * Retrieve macro-level risk summary across all active farm parcels.
+   * Calls GET /api/v1/risk-assessments/portfolio-summary
+   */
+  async getPortfolioRiskSummary(): Promise<ApiResponse<PortfolioRiskSummaryDTO>> {
+    const response = await apiClient.get<ApiResponse<PortfolioRiskSummaryDTO>>(
+      '/risk-assessments/portfolio-summary'
     );
     return response.data;
   },

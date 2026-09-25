@@ -8,9 +8,10 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "npx tsx tests/riskAssessment.frontend.test.tsx && npx tsx tests/riskPortfolio.frontend.test.tsx",
+    "test": "npx tsx tests/riskAssessment.frontend.test.tsx && npx tsx tests/riskPortfolio.frontend.test.tsx && npx tsx tests/riskStage6.frontend.test.tsx",
     "test:risk:frontend": "npx tsx tests/riskAssessment.frontend.test.tsx",
-    "test:risk:portfolio": "npx tsx tests/riskPortfolio.frontend.test.tsx"
+    "test:risk:portfolio": "npx tsx tests/riskPortfolio.frontend.test.tsx",
+    "test:risk:stage6": "npx tsx tests/riskStage6.frontend.test.tsx"
   },
   "dependencies": {
     "axios": "^1.7.2",

@@ -30,7 +30,9 @@ import {
   RuleEvaluationStatus,
   DEFAULT_ASSESSMENT_VERSION,
   RiskRuleEvaluationInput,
+  PortfolioRiskSummaryDTO,
 } from '../types/risk.types.js';
+import { FarmStatus } from '@prisma/client';
 import { IWeatherRepository } from '../types/weather.types.js';
 import { IFarmRepository } from '../types/farm.types.js';
 import { riskRepository } from '../repositories/risk.repository.js';
@@ -252,6 +254,60 @@ export class RiskAssessmentService {
     }
 
     return this.formatAssessment(assessments[0]);
+  }
+
+  /**
+   * Retrieve macro-level risk summary across all active farm parcels (status = ACTIVE).
+   *
+   * Population:
+   * Only farms with status = FarmStatus.ACTIVE.
+   *
+   * Metrics:
+   * - totalFarms: Count of active farms
+   * - assessedFarms: Count of active farms with at least one assessment
+   * - unassessedFarms: totalFarms - assessedFarms
+   * - highRiskCount: Active farms whose latest assessment has overallRisk = HIGH
+   * - moderateRiskCount: Active farms whose latest assessment has overallRisk = MODERATE
+   * - lowRiskCount: Active farms whose latest assessment has overallRisk = LOW and hasInsufficientDataCoverage = false
+   * - lowRiskUnconfirmedCount: Active farms whose latest assessment has overallRisk = LOW and hasInsufficientDataCoverage = true
+   */
+  async getPortfolioRiskSummary(): Promise<PortfolioRiskSummaryDTO> {
+    const totalFarms = await this.farmRepo.count({ status: FarmStatus.ACTIVE });
+    const latestAssessments = await this.riskRepo.getLatestAssessmentsForActiveFarms();
+
+    let highRiskCount = 0;
+    let moderateRiskCount = 0;
+    let lowRiskCount = 0;
+    let lowRiskUnconfirmedCount = 0;
+
+    for (const assessment of latestAssessments) {
+      const formatted = this.formatAssessment(assessment);
+      if (formatted.overallRisk === RiskLevel.HIGH) {
+        highRiskCount++;
+      } else if (formatted.overallRisk === RiskLevel.MODERATE) {
+        moderateRiskCount++;
+      } else if (formatted.overallRisk === RiskLevel.LOW) {
+        if (formatted.hasInsufficientDataCoverage) {
+          lowRiskUnconfirmedCount++;
+        } else {
+          lowRiskCount++;
+        }
+      }
+    }
+
+    const assessedFarms = highRiskCount + moderateRiskCount + lowRiskCount + lowRiskUnconfirmedCount;
+    const unassessedFarms = Math.max(0, totalFarms - assessedFarms);
+
+    return {
+      totalFarms,
+      assessedFarms,
+      unassessedFarms,
+      highRiskCount,
+      moderateRiskCount,
+      lowRiskCount,
+      lowRiskUnconfirmedCount,
+      generatedAt: new Date().toISOString(),
+    };
   }
 
   /**

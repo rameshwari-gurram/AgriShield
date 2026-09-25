@@ -61,6 +61,17 @@ farmRiskRouter.get(
 const assessmentRouter = Router();
 
 /**
+ * @route   GET /api/v1/risk-assessments/portfolio-summary
+ * @desc    Retrieve macro-level risk summary metrics across all active farm parcels
+ * @access  Public (Standard API v1)
+ * NOTE: Registered BEFORE /:assessmentId to avoid UUID parameter collision
+ */
+assessmentRouter.get(
+  '/portfolio-summary',
+  riskAssessmentController.getPortfolioSummary.bind(riskAssessmentController)
+);
+
+/**
  * @route   GET /api/v1/risk-assessments/:assessmentId
  * @desc    Retrieve a single risk assessment with its populated risk events and rule definitions
  * @access  Public / Protected (Standard API v1)
