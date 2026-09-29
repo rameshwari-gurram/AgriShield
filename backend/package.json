@@ -25,8 +25,10 @@
     "test:satellite:unit": "tsx tests/satelliteNdvi.unit.test.ts",
     "test:satellite:integration": "tsx tests/satelliteNdvi.integration.test.ts",
     "test:copernicus:auth": "tsx tests/copernicusAuthHttp.unit.test.ts",
-    "test:satellite": "tsx tests/satelliteNdvi.unit.test.ts && tsx tests/copernicusAuthHttp.unit.test.ts && tsx tests/satelliteNdvi.integration.test.ts",
+    "test:copernicus:statistical": "tsx tests/copernicusStatisticalApi.unit.test.ts",
+    "test:satellite": "tsx tests/satelliteNdvi.unit.test.ts && tsx tests/copernicusAuthHttp.unit.test.ts && tsx tests/copernicusStatisticalApi.unit.test.ts && tsx tests/satelliteNdvi.integration.test.ts",
     "test:integration": "tsx tests/farmer.integration.test.ts && tsx tests/farm.integration.test.ts && tsx tests/farmBoundary.integration.test.ts",
+    "verify:copernicus": "tsx scripts/verifyCopernicusLive.ts",
     "seed": "tsx prisma/seed.ts"
   },
 

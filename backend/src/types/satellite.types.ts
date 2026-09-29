@@ -100,7 +100,8 @@ export interface ISatelliteProvider {
   readonly providerName: string;
   fetchNdviObservations(
     boundary: GeoJSONPolygon,
-    dateRange: { from: Date; to: Date }
+    dateRange: { from: Date; to: Date },
+    options?: { maxCloudCoverage?: number }
   ): Promise<NormalizedNdviObservationDTO[]>;
 }
 

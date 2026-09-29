@@ -92,6 +92,13 @@ export class CopernicusAuthService {
   }
 
   /**
+   * Alias for clearCachedToken.
+   */
+  public invalidateToken(): void {
+    this.clearCachedToken();
+  }
+
+  /**
    * Returns current cached token metadata (for diagnostic / unit testing purposes).
    * Does NOT return client_secret.
    */

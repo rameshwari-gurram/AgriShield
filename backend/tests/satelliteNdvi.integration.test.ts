@@ -25,6 +25,10 @@ import {
   NormalizedNdviObservationDTO,
 } from '../src/types/satellite.types.js';
 import { AppError } from '../src/utils/apiError.js';
+import { CopernicusSatelliteProvider } from '../src/providers/copernicus.provider.js';
+import { CopernicusAuthService } from '../src/services/copernicusAuth.service.js';
+import { CopernicusHttpClient } from '../src/providers/copernicusHttp.client.js';
+import { AxiosResponse, InternalAxiosRequestConfig } from 'axios';
 
 class MockIntegrationSatelliteProvider implements ISatelliteProvider {
   public readonly providerName = 'Copernicus Data Space Ecosystem';
@@ -614,9 +618,140 @@ async function runSatelliteIntegrationTests() {
     assert(isAscending, '9.10 Historical observations ordered chronologically ascending (observedAt ASC)');
 
     // ---------------------------------------------------------------------------
-    // 10. Farm Cascade Deletion Integrity
+    // 10. CopernicusSatelliteProvider Stage 7.2-B Live PostgreSQL Persistence
     // ---------------------------------------------------------------------------
-    console.log('\n--- 10. Farm Cascade Deletion Tests ---');
+    console.log('\n--- 10. CopernicusSatelliteProvider Stage 7.2-B Database Persistence ---');
+
+    class MockAxiosIntegrationClient {
+      public requests: any[] = [];
+      async post<T = any>(url: string, data?: any, config?: any): Promise<AxiosResponse<T>> {
+        this.requests.push({ url, method: 'POST', data, config });
+        return {
+          data: {
+            access_token: 'mock-copernicus-db-token',
+            token_type: 'Bearer',
+            expires_in: 3600,
+          } as any,
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          config: config || ({} as InternalAxiosRequestConfig),
+        };
+      }
+      async request<T = any>(config: any): Promise<AxiosResponse<T>> {
+        this.requests.push({ url: config.url, method: config.method || 'GET', data: config.data, config });
+        return {
+          data: {
+            data: [
+              {
+                interval: {
+                  from: '2026-09-28T05:36:41.000Z',
+                  to: '2026-09-29T05:36:41.000Z',
+                },
+                outputs: {
+                  data: {
+                    bands: {
+                      B0: {
+                        stats: {
+                          min: 0.2845,
+                          max: 0.8350,
+                          mean: 0.6912,
+                          sampleCount: 160,
+                          noDataCount: 8,
+                        },
+                      },
+                    },
+                  },
+                  dataMask: {
+                    bands: {
+                      B0: {
+                        stats: {
+                          sampleCount: 160,
+                          noDataCount: 8,
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            ],
+          } as any,
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          config: config || ({} as InternalAxiosRequestConfig),
+        };
+      }
+    }
+
+    const mockAuthAxios = new MockAxiosIntegrationClient();
+    const mockHttpAxios = new MockAxiosIntegrationClient();
+
+    const liveAuthService = new CopernicusAuthService(
+      {
+        authUrl: 'https://identity.dataspace.copernicus.eu/auth/realms/CDSE/protocol/openid-connect/token',
+        clientId: 'mock-client-id',
+        clientSecret: 'mock-client-secret',
+      },
+      mockAuthAxios as any
+    );
+
+    const liveHttpClient = new CopernicusHttpClient(
+      liveAuthService,
+      mockHttpAxios as any,
+      { baseUrl: 'https://sh.dataspace.copernicus.eu' }
+    );
+
+    const liveCopernicusProvider = new CopernicusSatelliteProvider(
+      liveHttpClient,
+      { authService: liveAuthService }
+    );
+
+    const copernicusSatelliteService = new SatelliteService(
+      satelliteRepository,
+      farmBoundaryRepository,
+      undefined,
+      liveCopernicusProvider
+    );
+
+    const copernicusSyncResult = await copernicusSatelliteService.syncSatelliteObservations(testFarmId, {
+      from: new Date('2026-09-26T00:00:00Z'),
+      to: new Date('2026-09-29T00:00:00Z'),
+    });
+
+    assert(copernicusSyncResult.syncedCount === 1, '10.1 Copernicus provider synced 1 observation via SatelliteService');
+    assert(mockHttpAxios.requests.length === 1, '10.2 CopernicusHttpClient dispatched request to /statistics/v1');
+    assert(mockHttpAxios.requests[0].data.aggregation.evalscript.includes('//VERSION=3'), '10.3 Sent Evalscript v3 to Copernicus API');
+
+    // Query from PostgreSQL database to verify real persistence
+    const persistedCopernicusObs = await prisma.satelliteObservation.findFirst({
+      where: {
+        farmId: testFarmId,
+        observedAt: new Date('2026-09-28T05:36:41.000Z'),
+      },
+      include: { ndviObservation: true },
+    });
+
+    assert(persistedCopernicusObs !== null, '10.4 Copernicus SatelliteObservation row found in live PostgreSQL');
+    assert(persistedCopernicusObs?.provider === 'Copernicus Data Space Ecosystem', '10.5 Provider attributed as Copernicus Data Space Ecosystem');
+    assert(persistedCopernicusObs?.ndviObservation !== null, '10.6 Associated NdviObservation found in live PostgreSQL');
+    assert(Number(persistedCopernicusObs?.ndviObservation?.meanNdvi) === 0.6912, '10.7 Mean NDVI persisted as 0.6912');
+    assert(Number(persistedCopernicusObs?.ndviObservation?.validPixelPercentage) === 95.24, '10.8 Valid pixel percentage persisted accurately (160 / 168 = 95.24%)');
+    assert(persistedCopernicusObs?.productId === 'STAT_AGG_S2L2A_20260928T053641Z', '10.9 Deterministic aggregation identifier STAT_AGG_S2L2A persisted without masquerading as physical scene product ID');
+
+    // Test idempotency: sync again upserts existing records without increasing total count
+    const countBeforeResync = await prisma.satelliteObservation.count({ where: { farmId: testFarmId } });
+    await copernicusSatelliteService.syncSatelliteObservations(testFarmId, {
+      from: new Date('2026-09-26T00:00:00Z'),
+      to: new Date('2026-09-29T00:00:00Z'),
+    });
+    const countAfterResync = await prisma.satelliteObservation.count({ where: { farmId: testFarmId } });
+    assert(countBeforeResync === countAfterResync, '10.10 Resyncing identical observations is idempotent (database count remains unchanged)');
+
+    // ---------------------------------------------------------------------------
+    // 11. Farm Cascade Deletion Integrity
+    // ---------------------------------------------------------------------------
+    console.log('\n--- 11. Farm Cascade Deletion Tests ---');
 
     // Deleting the Farm must cascade delete all its SatelliteObservation and NdviObservation records
     const farmToDeleteId = testFarmId;
@@ -625,7 +760,7 @@ async function runSatelliteIntegrationTests() {
 
     const satRemaining = await prisma.satelliteObservation.count({ where: { farmId: farmToDeleteId } });
     const ndviRemaining = await prisma.ndviObservation.count({ where: { farmId: farmToDeleteId } });
-    assert(satRemaining === 0 && ndviRemaining === 0, '10.1 Deleting Farm cascade-deleted all satellite and NDVI records');
+    assert(satRemaining === 0 && ndviRemaining === 0, '11.1 Deleting Farm cascade-deleted all satellite and NDVI records');
 
     console.log('\n  [Cleaning up remaining test entities...]');
   } finally {

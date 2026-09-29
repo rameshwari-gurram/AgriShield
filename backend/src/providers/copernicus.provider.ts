@@ -22,7 +22,6 @@
 
 import { env } from '../config/env.config.js';
 import { AppError } from '../utils/apiError.js';
-import { calculateNdvi } from '../utils/ndvi.calculator.js';
 import {
   ISatelliteProvider,
   GeoJSONPolygon,
@@ -34,8 +33,11 @@ import {
 import { CopernicusAuthService, copernicusAuthService } from '../services/copernicusAuth.service.js';
 import { CopernicusHttpClient, copernicusHttpClient } from './copernicusHttp.client.js';
 
+import { buildCopernicusStatisticalRequest, SENTINEL2_NDVI_EVALSCRIPT } from '../utils/copernicusEvalscript.js';
+
 export class CopernicusSatelliteProvider implements ISatelliteProvider {
   public readonly providerName = 'Copernicus Data Space Ecosystem';
+  public readonly evalscript = SENTINEL2_NDVI_EVALSCRIPT;
   private httpClient: CopernicusHttpClient;
   private authService: CopernicusAuthService;
   private baseUrl: string;
@@ -146,6 +148,7 @@ export class CopernicusSatelliteProvider implements ISatelliteProvider {
 
   /**
    * Validates date range for satellite observation query.
+   * Ensures from is strictly before to (from < to).
    */
   public validateDateRange(dateRange: { from: Date; to: Date }): void {
     if (!dateRange || !(dateRange.from instanceof Date) || !(dateRange.to instanceof Date)) {
@@ -156,7 +159,7 @@ export class CopernicusSatelliteProvider implements ISatelliteProvider {
       throw AppError.badRequest('Invalid date range: Unparseable date timestamp.');
     }
 
-    if (dateRange.from > dateRange.to) {
+    if (dateRange.from >= dateRange.to) {
       throw AppError.badRequest(
         `Invalid date range: 'from' (${dateRange.from.toISOString()}) must be before or equal to 'to' (${dateRange.to.toISOString()}).`
       );
@@ -173,11 +176,12 @@ export class CopernicusSatelliteProvider implements ISatelliteProvider {
   /**
    * Normalizes raw Copernicus Sentinel Hub Statistical API output into domain DTOs.
    * Isolates provider payload structure from the application domain.
+   * Skips no-data intervals and invalid observations cleanly without fabricating data.
    */
   public normalizeStatisticalResponse(
     response: RawCopernicusStatisticalResponse,
-    metadata: {
-      productId: string;
+    metadata?: {
+      productId?: string;
       satellite?: string;
       productType?: string;
       cloudCoverage?: number | null;
@@ -201,48 +205,117 @@ export class CopernicusSatelliteProvider implements ISatelliteProvider {
         throw AppError.badGateway(`Malformed Copernicus response: Invalid interval date '${item.interval.from}'.`);
       }
 
-      const bands = item.outputs?.data?.bands;
-      if (!bands) {
-        throw AppError.badGateway(`Malformed Copernicus response: Missing outputs.data.bands at index ${idx}.`);
+      const outputs = item.outputs as any;
+      if (!outputs || typeof outputs !== 'object') {
+        continue;
       }
+
+      const dataBands = outputs.data?.bands;
+      const ndviBands = outputs.NDVI?.bands;
+
+      // Extract statistical metrics for NDVI
+      let stats: any =
+        dataBands?.NDVI?.stats ||
+        dataBands?.B0?.stats ||
+        dataBands?.default?.stats ||
+        ndviBands?.B0?.stats ||
+        ndviBands?.default?.stats ||
+        ndviBands?.NDVI?.stats;
 
       let meanNdvi: number;
       let minNdvi: number;
       let maxNdvi: number;
-      let validPixelPercentage: number = 100.0;
 
-      // Extract NDVI stats if computed directly by Sentinel Hub evalscript
-      if (bands.NDVI?.stats) {
-        minNdvi = bands.NDVI.stats.min;
-        maxNdvi = bands.NDVI.stats.max;
-        meanNdvi = bands.NDVI.stats.mean;
-      } else if (bands.B08?.stats && bands.B04?.stats) {
-        // Fallback: Calculate from B08 (NIR) and B04 (Red) means
-        const nirMean = bands.B08.stats.mean;
-        const redMean = bands.B04.stats.mean;
-        meanNdvi = calculateNdvi(nirMean, redMean);
-        minNdvi = calculateNdvi(bands.B08.stats.min, bands.B04.stats.max);
-        maxNdvi = calculateNdvi(bands.B08.stats.max, bands.B04.stats.min);
+      if (stats && (stats.sampleCount === undefined || stats.sampleCount > 0)) {
+        if (typeof stats.mean !== 'number' || isNaN(stats.mean) || !isFinite(stats.mean)) {
+          throw AppError.badGateway(
+            `Invalid NDVI value derived from Copernicus: ${stats.mean}. Must be a finite number in [-1.0, 1.0].`
+          );
+        }
+        meanNdvi = stats.mean;
+        minNdvi = typeof stats.min === 'number' && !isNaN(stats.min) ? stats.min : stats.mean;
+        maxNdvi = typeof stats.max === 'number' && !isNaN(stats.max) ? stats.max : stats.mean;
       } else {
+        // Missing, malformed, or 0-sample NDVI statistics: treat as unusable / no-data.
+        // In accordance with mathematical integrity, we DO NOT synthesize or approximate
+        // mean NDVI from separate band means (e.g. (mean(B08) - mean(B04)) / (mean(B08) + mean(B04))),
+        // because the expectation of a quotient is not mathematically equivalent to the quotient of expectations.
+        continue;
+      }
+
+      // Mathematical range validation [-1.0, 1.0] and finiteness
+      if (isNaN(meanNdvi) || !isFinite(meanNdvi) || meanNdvi < -1.0 || meanNdvi > 1.0) {
         throw AppError.badGateway(
-          `Malformed Copernicus response: Missing NDVI or B04/B08 band statistics at index ${idx}.`
+          `Invalid NDVI value derived from Copernicus: ${meanNdvi}. Must be in [-1.0, 1.0].`
+        );
+      }
+      if (isNaN(minNdvi) || !isFinite(minNdvi) || minNdvi < -1.0 || minNdvi > 1.0) {
+        throw AppError.badGateway(
+          `Invalid minNdvi value derived from Copernicus: ${minNdvi}. Must be in [-1.0, 1.0].`
+        );
+      }
+      if (isNaN(maxNdvi) || !isFinite(maxNdvi) || maxNdvi < -1.0 || maxNdvi > 1.0) {
+        throw AppError.badGateway(
+          `Invalid maxNdvi value derived from Copernicus: ${maxNdvi}. Must be in [-1.0, 1.0].`
+        );
+      }
+      if (minNdvi > maxNdvi) {
+        throw AppError.badGateway(
+          `Invalid NDVI metrics from Copernicus: minNdvi (${minNdvi}) > maxNdvi (${maxNdvi}).`
         );
       }
 
-      // Sample count / pixel percentage derivation if available
-      const sampleCount = bands.NDVI?.stats?.sampleCount ?? bands.B08?.stats?.sampleCount;
-      if (typeof sampleCount === 'number' && sampleCount > 0) {
-        validPixelPercentage = 100.0; // High confidence pixel coverage
+      // Valid pixel percentage derivation
+      let validPixelPercentage = 100.0;
+      const dataMaskStats =
+        outputs.dataMask?.bands?.B0?.stats ||
+        outputs.dataMask?.bands?.default?.stats;
+
+      if (dataMaskStats && typeof dataMaskStats.sampleCount === 'number') {
+        const samples = dataMaskStats.sampleCount;
+        const noData = typeof dataMaskStats.noDataCount === 'number' ? dataMaskStats.noDataCount : 0;
+        const total = samples + noData;
+        if (samples === 0) {
+          // Zero valid pixels: skip interval
+          continue;
+        }
+        if (total > 0) {
+          validPixelPercentage = Number(((samples / total) * 100).toFixed(2));
+        }
+      } else if (typeof stats.sampleCount === 'number') {
+        if (stats.sampleCount === 0) {
+          continue;
+        }
+        if (typeof stats.noDataCount === 'number') {
+          const total = stats.sampleCount + stats.noDataCount;
+          if (total > 0) {
+            validPixelPercentage = Number(((stats.sampleCount / total) * 100).toFixed(2));
+          }
+        }
+      }
+
+      // Observation / aggregation identifier semantics:
+      // When a real Copernicus product ID is supplied (e.g. from catalog metadata), preserve it.
+      // If none is provided (because the Statistical API aggregates over daily intervals rather
+      // than returning a single physical Sentinel-2 granule/scene product ID), assign an explicit
+      // aggregation identifier 'STAT_AGG_S2L2A_<timestamp>' to guarantee database idempotency
+      // without misleadingly masquerading as an actual physical Sentinel-2 scene granule ID.
+      let productId = metadata?.productId;
+      if (!productId) {
+        const dateStr = observedAt.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+        productId = `STAT_AGG_S2L2A_${dateStr}`;
       }
 
       const satelliteMetadata: NormalizedSatelliteObservationDTO = {
         observedAt,
         provider: this.providerName,
-        satellite: metadata.satellite || 'Sentinel-2',
-        productType: metadata.productType || 'S2MSI2A',
-        productId: metadata.productId,
-        cloudCoverage: metadata.cloudCoverage ?? null,
-        sourceReference: metadata.sourceReference || 'Copernicus Data Space Ecosystem - Sentinel-2 MSI Level-2A',
+        satellite: metadata?.satellite || 'Sentinel-2',
+        productType: metadata?.productType || 'S2MSI2A',
+        productId,
+        cloudCoverage: metadata?.cloudCoverage !== undefined ? metadata.cloudCoverage : null,
+        sourceReference:
+          metadata?.sourceReference ||
+          'Copernicus Data Space Ecosystem - Sentinel-2 MSI Level-2A Statistical API',
       };
 
       const ndviMetrics: NormalizedNdviMetricsDTO = {
@@ -263,17 +336,13 @@ export class CopernicusSatelliteProvider implements ISatelliteProvider {
   }
 
   /**
-   * Fetches normalized NDVI observations for a farm polygon over a specified time window.
-   *
-   * Stage 7.1 Integration Boundary:
-   * Real external network dispatch to Copernicus Data Space is scheduled for Stage 7.2.
-   * When credentials are not yet configured in environment, this method validates polygon
-   * boundary and query parameters, and raises a cleanly documented integration boundary error.
-   * Does NOT fabricate satellite data.
+   * Fetches normalized NDVI observations for a farm polygon over a specified time window
+   * using the official Copernicus Sentinel Hub Statistical API (POST /statistics/v1).
    */
   async fetchNdviObservations(
     boundary: GeoJSONPolygon,
-    dateRange: { from: Date; to: Date }
+    dateRange: { from: Date; to: Date },
+    options?: { maxCloudCoverage?: number }
   ): Promise<NormalizedNdviObservationDTO[]> {
     this.validatePolygon(boundary);
     this.validateDateRange(dateRange);
@@ -285,10 +354,17 @@ export class CopernicusSatelliteProvider implements ISatelliteProvider {
       );
     }
 
-    // Deferred to Stage 7.2 for live network integration
-    throw AppError.serviceUnavailable(
-      'Live external Copernicus Data Space API dispatch is scheduled for Stage 7.2. Integration boundary validated.'
+    // Build official Sentinel Hub Statistical API request payload
+    const requestBody = buildCopernicusStatisticalRequest(boundary, dateRange, options);
+
+    // Dispatch via CopernicusHttpClient
+    const response = await this.httpClient.post<RawCopernicusStatisticalResponse>(
+      '/statistics/v1',
+      requestBody
     );
+
+    // Normalize Statistical API response
+    return this.normalizeStatisticalResponse(response.data);
   }
 }
 

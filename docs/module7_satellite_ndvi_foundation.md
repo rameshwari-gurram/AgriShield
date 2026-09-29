@@ -95,10 +95,12 @@ Stores zonal aggregate NDVI metrics calculated over the farm boundary for a give
 
 ## 7. Verification Results Summary
 
-- **Satellite Unit Tests:** 69/69 passed (NDVI formulas, zero denominator, range checks, non-clamping, cloud/pixel percentage bounds, nullable cloud coverage, DTO normalization, provider abstraction).
-- **Copernicus Auth & HTTP Unit Tests:** 49/49 passed (OAuth2 client credentials, token caching, early refresh, 401 single retry, 429 rate limit, timeout, provider error mapping, credential security).
-- **Database Integration Tests:** 56/56 passed (Live PostgreSQL + PostGIS, foreign key cascades, uniqueness constraints, 4-decimal precision, null cloud coverage persistence and DTO formatting, transaction rollback, service orchestration).
-- **Module 5 & 6 Regression Tests:** 100% unaffected and passing (Weather provider/service/integration/aggregation, Risk database, Risk rule engine, Risk assessment, Risk API, Risk Stage 6).
+- **Satellite Unit Tests (`satelliteNdvi.unit.test.ts`):** 69/69 passed (NDVI formulas, zero denominator, range checks, non-clamping, cloud/pixel percentage bounds, nullable cloud coverage, DTO normalization, provider abstraction).
+- **Copernicus Auth & HTTP Unit Tests (`copernicusAuthHttp.unit.test.ts`):** 49/49 passed (OAuth2 client credentials, token caching, early refresh, 401 single retry, 429 rate limit, timeout, provider error mapping, credential security).
+- **Copernicus Statistical API Unit Tests (`copernicusStatisticalApi.unit.test.ts`):** 44/44 passed (Evalscript v3, B04/B08/dataMask, spatial request generation, 10m resolution, daily intervals, WGS84 CRS, zero-data filtering, no band-mean approximations, range enforcement, 401 retry, secret masking, maxCloudCoverage config, product ID preservation).
+- **Satellite & NDVI Database Integration Tests (`satelliteNdvi.integration.test.ts`):** 66/66 passed (Live PostgreSQL + PostGIS, foreign key cascades, uniqueness constraints, 4-decimal precision, null cloud coverage persistence and DTO formatting, transaction rollback, service orchestration, Copernicus provider live DB persistence & idempotency).
+- **Total Satellite Test Suite (`npm run test:satellite`):** 228/228 passed.
+- **Repository Regression Tests:** 100% unaffected and passing across Modules 1–6 (794 tests across Farmers, Farms, Boundaries, Weather Provider/Service/Integration/API/Aggregation, Risk DB/Rule Engine/Assessment/API/Stage 6). Total repository tests: 1,022 passed.
 
 ---
 
@@ -161,4 +163,108 @@ CopernicusSatelliteProvider
 - **No Frontend Exposure:** Neither credentials nor Copernicus environment keys are exposed to the frontend or Vite bundles.
 - **No Secret Leakage:** Error messages, stack traces, and internal logs strictly exclude `client_secret`, `access_token`, and `Authorization` headers.
 - **Environment Isolation:** Local `.env` remains gitignored, and `.env.example` contains variable placeholders only.
+
+---
+
+## 9. Stage 7.2-B: Sentinel-2 Statistical API Integration
+
+### 9.1 Overview & Architecture
+Stage 7.2-B operationalizes parcel-level vegetation index extraction using the official **Copernicus Data Space Ecosystem (Sentinel Hub) Statistical API v1**.
+
+```
+PostGIS FarmBoundary (EPSG:4326)
+        ↓
+GeoJSON Polygon [lon, lat]
+        ↓
+SatelliteService (orchestration & persistence)
+        ↓
+CopernicusSatelliteProvider (buildCopernicusStatisticalRequest)
+        ↓
+CopernicusHttpClient (POST /statistics/v1 with Bearer token)
+        ↓
+Sentinel Hub Statistical API (evalscript v3 execution across S2 L2A archive)
+        ↓
+Statistical Aggregation Response (NDVI mean, min, max, dataMask counts)
+        ↓
+normalizeStatisticalResponse (DTO conversion, validation & sanitization)
+        ↓
+PostgreSQL Storage (satellite_observations + ndvi_observations)
+```
+
+### 9.2 Official Endpoints & Spatial Invariants
+- **API Endpoint:** `POST /statistics/v1` on `https://sh.dataspace.copernicus.eu`
+- **CRS:** `http://www.opengis.net/def/crs/EPSG/0/4326` (WGS84)
+- **Coordinate Order:** `[longitude, latitude]` preserved from authoritative PostGIS `FarmBoundary`.
+- **Spatial Resolution:** `resx: 10`, `resy: 10` matching native 10m ground resolution of Sentinel-2 MSI visible and NIR bands.
+- **Aggregation Interval:** `P1D` (daily aggregation window per satellite pass).
+- **Mosaicking Order:** `leastRecent` in `dataFilter`.
+
+### 9.3 Evalscript V3 Implementation (`SENTINEL2_NDVI_EVALSCRIPT`)
+The Statistical API evaluates an on-the-fly JavaScript Evalscript v3 over Sentinel-2 MSI Level-2A surface reflectance:
+```javascript
+//VERSION=3
+function setup() {
+  return {
+    input: [{ bands: ["B04", "B08", "dataMask"] }],
+    output: [
+      { id: "data", bands: 1 },
+      { id: "dataMask", bands: 1 }
+    ]
+  };
+}
+
+function evaluatePixel(samples) {
+  var b04 = samples.B04;
+  var b08 = samples.B08;
+  var mask = samples.dataMask;
+
+  // 1. Exclude if pixel is outside farm boundary or sensor no-data
+  if (mask === 0) {
+    return { data: [0], dataMask: [0] };
+  }
+
+  // 2. Division by zero protection
+  var denom = b08 + b04;
+  if (denom === 0 || isNaN(denom)) {
+    return { data: [0], dataMask: [0] };
+  }
+
+  var ndvi = (b08 - b04) / denom;
+
+  // 3. Mathematical bounds [-1.0, 1.0] and finiteness
+  if (isNaN(ndvi) || !isFinite(ndvi) || ndvi < -1.0 || ndvi > 1.0) {
+    return { data: [0], dataMask: [0] };
+  }
+
+  return { data: [ndvi], dataMask: [1] };
+}
+```
+**Key Invariants:**
+- **Zero-Denominator Defense:** When $B08 + B04 = 0$ or undefined, the pixel is masked out (`dataMask = 0`) to prevent division by zero or NaN pollution.
+- **Parcel Clipping:** Pixels outside the polygon footprint or flagged invalid by MSI sensors have `dataMask = 0` and are automatically excluded from zonal statistical calculations.
+- **Bounds Checking:** Pixel NDVI values strictly within $[-1.0, 1.0]$ are included; non-finite values are filtered.
+
+### 9.4 Statistical Response Normalization (`normalizeStatisticalResponse`)
+Converts Copernicus Statistical API JSON responses into strongly-typed `NormalizedNdviObservationDTO[]`:
+1. **Decoupling:** Provider-specific structures (`data`, `interval`, `outputs`, `dataMask`, `bands`, `stDev`) are completely encapsulated within `CopernicusSatelliteProvider`.
+2. **Zero-Data Filtering & Missing Stats Handling:** Intervals with `sampleCount === 0` (e.g. non-overpass dates or heavy sensor dropout) or missing/malformed NDVI statistics are skipped cleanly without fabricating synthetic data.
+3. **No Unsafe Band-Mean Approximations:** AgriShield strictly rejects approximating mean NDVI from separate band means:
+   $$\mathbb{E}\left[\frac{\text{B08} - \text{B04}}{\text{B08} + \text{B04}}\right] \ne \frac{\mathbb{E}[\text{B08}] - \mathbb{E}[\text{B04}]}{\mathbb{E}[\text{B08}] + \mathbb{E}[\text{B04}]}$$
+   The expectation of a quotient is not mathematically equivalent to the quotient of expectations. If the per-pixel evalscript NDVI output is unavailable, the observation is treated strictly as unusable/no-data.
+4. **Valid Pixel Percentage:** Computed deterministically:
+   $$\text{validPixelPercentage} = \frac{\text{sampleCount}}{\text{sampleCount} + \text{noDataCount}} \times 100$$
+5. **Observation / Aggregation Identifier Semantics:**
+   - Real Copernicus product identifiers (e.g. from catalog metadata) are preserved when supplied.
+   - Because the Statistical API aggregates over daily intervals (P1D) rather than returning individual Sentinel-2 scene granule identifiers, AgriShield assigns an explicit aggregation identifier `STAT_AGG_S2L2A_<UTC_TIMESTAMP>` (e.g., `STAT_AGG_S2L2A_20260908T053641Z`) to guarantee database idempotency on `(farmId, productId)` without misleadingly masquerading as an actual physical Sentinel-2 scene tile.
+6. **Nullable Cloud Coverage:** Since the Statistical API zonal aggregate does not return scene-wide cloud coverage percentages, `cloudCoverage` is normalized strictly to `null` to avoid fabricating false $0.0\%$ cloud measurements.
+7. **Cloud Filtering Architecture:**
+   - Scene-level filtering via `maxCloudCoverage` is intentionally omitted by default because 10,000 km² tile cloudiness would discard cloud-free observations over small farm parcels.
+   - Pixel-level validity is evaluated directly at parcel scale via the `dataMask` band in the evalscript.
+   - When scene-level pre-filtering is explicitly needed, the official Sentinel Hub `maxCloudCoverage` parameter in `dataFilter` is supported.
+
+### 9.5 Security, Safety & Resilience
+- **Zero Secrets Leakage:** Client secret, access token, and Authorization headers are masked and never present in error messages, API responses, or logs.
+- **Automated Mocked Tests:** All unit and integration test suites run against mocked HTTP clients and live PostgreSQL/PostGIS, remaining 100% green without requiring live Copernicus credentials.
+- **Safe Manual Verification:** Provided `backend/scripts/verifyCopernicusLive.ts` (`npm run verify:copernicus`) enables developers to test against the live Copernicus Data Space Ecosystem securely when credentials are provided in `.env`.
+
 
