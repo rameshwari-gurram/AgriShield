@@ -18,7 +18,7 @@ const envSchema = z.object({
   COPERNICUS_CLIENT_ID: z.string().optional(),
   COPERNICUS_CLIENT_SECRET: z.string().optional(),
   COPERNICUS_AUTH_URL: z.string().url().default('https://identity.dataspace.copernicus.eu/auth/realms/CDSE/protocol/openid-connect/token'),
-  COPERNICUS_BASE_URL: z.string().url().default('https://sh.dataspace.copernicus.eu/api/v1'),
+  COPERNICUS_BASE_URL: z.string().url().default('https://sh.dataspace.copernicus.eu'),
   SATELLITE_REQUEST_TIMEOUT_MS: z.string().default('15000').transform((val) => parseInt(val, 10)),
 });
 

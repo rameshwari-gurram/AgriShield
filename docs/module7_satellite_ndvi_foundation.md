@@ -95,6 +95,70 @@ Stores zonal aggregate NDVI metrics calculated over the farm boundary for a give
 
 ## 7. Verification Results Summary
 
-- **Unit Tests:** 69/69 passed (NDVI formulas, zero denominator, range checks, non-clamping, cloud/pixel percentage bounds, nullable cloud coverage, DTO normalization, provider abstraction).
+- **Satellite Unit Tests:** 69/69 passed (NDVI formulas, zero denominator, range checks, non-clamping, cloud/pixel percentage bounds, nullable cloud coverage, DTO normalization, provider abstraction).
+- **Copernicus Auth & HTTP Unit Tests:** 49/49 passed (OAuth2 client credentials, token caching, early refresh, 401 single retry, 429 rate limit, timeout, provider error mapping, credential security).
 - **Database Integration Tests:** 56/56 passed (Live PostgreSQL + PostGIS, foreign key cascades, uniqueness constraints, 4-decimal precision, null cloud coverage persistence and DTO formatting, transaction rollback, service orchestration).
-- **Module 6 Regression Tests:** 100% unaffected and passing (Weather integration, Risk rule engine, Risk assessment, Portfolio alerts).
+- **Module 5 & 6 Regression Tests:** 100% unaffected and passing (Weather provider/service/integration/aggregation, Risk database, Risk rule engine, Risk assessment, Risk API, Risk Stage 6).
+
+---
+
+## 8. Stage 7.2-A: Copernicus Data Space Authentication & HTTP Client
+
+### 8.1 Scope & Boundaries
+> [!IMPORTANT]
+> **Stage 7.2-A establishes authentication and HTTP transport only.**
+> Real Sentinel-2 Statistical API data retrieval, evalscript generation, and polygon zonal processing are scheduled for **Stage 7.2-B**.
+
+### 8.2 Architectural Layers
+```
+CopernicusAuthService
+        ↓
+CopernicusHttpClient
+        ↓
+CopernicusSatelliteProvider
+```
+- **Separation of Concerns:** `CopernicusSatelliteProvider` delegates all token management and transport resilience to `CopernicusHttpClient` and `CopernicusAuthService`, eliminating duplicated authentication logic.
+
+### 8.3 Official Endpoints & Configuration
+- **OAuth2 Token Endpoint:**
+  `https://identity.dataspace.copernicus.eu/auth/realms/CDSE/protocol/openid-connect/token` (`COPERNICUS_AUTH_URL`)
+- **Sentinel Hub API Base URL:**
+  `https://sh.dataspace.copernicus.eu` (`COPERNICUS_BASE_URL`)
+- **Future Statistical API (Stage 7.2-B):**
+  `https://sh.dataspace.copernicus.eu/statistics/v1`
+- **Request Timeout:**
+  Configured via `SATELLITE_REQUEST_TIMEOUT_MS` (default: 15,000 ms).
+
+### 8.4 Authentication Service (`CopernicusAuthService`)
+- **Grant Type:** RFC 6749 OAuth2 `client_credentials`.
+- **Payload Format:** `application/x-www-form-urlencoded` containing `grant_type`, `client_id`, and `client_secret`.
+- **Token Caching:** Access tokens are cached strictly in memory alongside their expiration epoch (`expiresAt = Date.now() + expiresIn * 1000`).
+- **Reuse:** Sequential API requests reuse the cached token, avoiding redundant token generation.
+- **Early-Expiry Safety Margin:** Enforces a configurable 60-second safety window (`safetyMarginMs = 60,000`). If a token expires within 60 seconds, a proactive refresh is triggered before dispatching API calls.
+- **Invalidation:** `clearCachedToken()` purges the token upon persistent authentication errors.
+- **Persistence Invariant:** Tokens are **never** persisted to PostgreSQL or stored on the filesystem.
+
+### 8.5 Reusable HTTP Client (`CopernicusHttpClient`)
+- **Bearer Token Injection:** Automatically attaches `Authorization: Bearer <token>` to all outgoing requests.
+- **401 Unauthorized Single Retry:**
+  1. If an authenticated request receives HTTP 401, the cached token is immediately invalidated.
+  2. A fresh token is requested from `CopernicusAuthService`.
+  3. The original request is retried **exactly once** with `_retry: true`.
+  4. If the retry fails with 401, execution halts and returns a clean `AppError 401 Unauthorized` without infinite looping.
+- **429 Rate Limit Handling:**
+  - Detects HTTP 429 without executing uncontrolled retries.
+  - Preserves and surfaces the `Retry-After` header value in error details.
+  - Maps to `AppError.tooManyRequests(429)`.
+- **Timeout Management:**
+  - Detects `ECONNABORTED`, HTTP 408, or network hang beyond `SATELLITE_REQUEST_TIMEOUT_MS`.
+  - Maps cleanly to `AppError.serviceUnavailable(503)`.
+- **Error Normalization:**
+  - Standardizes HTTP 400 (`badRequest`), 401 (`unauthorized`), 403 (`forbidden`), 404 (`notFound`), 429 (`tooManyRequests`), and 5xx (`serviceUnavailable`/`badGateway`).
+  - Sanitizes error outputs to ensure provider status details are preserved without exposing raw secrets.
+
+### 8.6 Security Invariants
+- **Backend-Only Credentials:** Client ID and Secret exist exclusively in backend environment variables (`COPERNICUS_CLIENT_ID`, `COPERNICUS_CLIENT_SECRET`).
+- **No Frontend Exposure:** Neither credentials nor Copernicus environment keys are exposed to the frontend or Vite bundles.
+- **No Secret Leakage:** Error messages, stack traces, and internal logs strictly exclude `client_secret`, `access_token`, and `Authorization` headers.
+- **Environment Isolation:** Local `.env` remains gitignored, and `.env.example` contains variable placeholders only.
+

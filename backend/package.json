@@ -24,7 +24,8 @@
     "test:risk:stage6": "tsx tests/riskStage6.unit.test.ts && tsx tests/riskStage6.api.integration.test.ts",
     "test:satellite:unit": "tsx tests/satelliteNdvi.unit.test.ts",
     "test:satellite:integration": "tsx tests/satelliteNdvi.integration.test.ts",
-    "test:satellite": "tsx tests/satelliteNdvi.unit.test.ts && tsx tests/satelliteNdvi.integration.test.ts",
+    "test:copernicus:auth": "tsx tests/copernicusAuthHttp.unit.test.ts",
+    "test:satellite": "tsx tests/satelliteNdvi.unit.test.ts && tsx tests/copernicusAuthHttp.unit.test.ts && tsx tests/satelliteNdvi.integration.test.ts",
     "test:integration": "tsx tests/farmer.integration.test.ts && tsx tests/farm.integration.test.ts && tsx tests/farmBoundary.integration.test.ts",
     "seed": "tsx prisma/seed.ts"
   },

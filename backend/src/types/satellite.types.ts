@@ -208,3 +208,41 @@ export interface RawCopernicusStatisticalResponse {
   data: RawCopernicusStatisticalOutput[];
   status?: string;
 }
+
+/**
+ * Stage 7.2-A: Copernicus OAuth2 Token Response Structure (RFC 6749)
+ */
+export interface CopernicusTokenResponse {
+  access_token: string;
+  expires_in?: number;
+  token_type?: string;
+  scope?: string;
+}
+
+/**
+ * Stage 7.2-A: In-memory cached token structure
+ */
+export interface CachedCopernicusToken {
+  accessToken: string;
+  expiresAt: number; // Unix timestamp in milliseconds
+}
+
+/**
+ * Stage 7.2-A: Configuration options for CopernicusAuthService
+ */
+export interface CopernicusAuthConfig {
+  authUrl?: string;
+  clientId?: string;
+  clientSecret?: string;
+  timeoutMs?: number;
+  safetyMarginMs?: number;
+}
+
+/**
+ * Stage 7.2-A: Configuration options for CopernicusHttpClient
+ */
+export interface CopernicusHttpClientConfig {
+  baseUrl?: string;
+  timeoutMs?: number;
+}
+

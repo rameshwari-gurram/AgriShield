@@ -20,7 +20,6 @@
  * - Zero fabricated satellite data in production stubs.
  */
 
-import axios, { AxiosInstance } from 'axios';
 import { env } from '../config/env.config.js';
 import { AppError } from '../utils/apiError.js';
 import { calculateNdvi } from '../utils/ndvi.calculator.js';
@@ -32,19 +31,21 @@ import {
   NormalizedNdviMetricsDTO,
   RawCopernicusStatisticalResponse,
 } from '../types/satellite.types.js';
+import { CopernicusAuthService, copernicusAuthService } from '../services/copernicusAuth.service.js';
+import { CopernicusHttpClient, copernicusHttpClient } from './copernicusHttp.client.js';
 
 export class CopernicusSatelliteProvider implements ISatelliteProvider {
   public readonly providerName = 'Copernicus Data Space Ecosystem';
-  private client: AxiosInstance;
+  private httpClient: CopernicusHttpClient;
+  private authService: CopernicusAuthService;
   private baseUrl: string;
   private authUrl: string;
-  private clientId?: string;
-  private clientSecret?: string;
   private timeoutMs: number;
 
   constructor(
-    client?: AxiosInstance,
+    httpClient?: CopernicusHttpClient,
     options?: {
+      authService?: CopernicusAuthService;
       baseUrl?: string;
       authUrl?: string;
       clientId?: string;
@@ -54,24 +55,35 @@ export class CopernicusSatelliteProvider implements ISatelliteProvider {
   ) {
     this.baseUrl = options?.baseUrl || env.COPERNICUS_BASE_URL;
     this.authUrl = options?.authUrl || env.COPERNICUS_AUTH_URL;
-    this.clientId = options?.clientId || env.COPERNICUS_CLIENT_ID;
-    this.clientSecret = options?.clientSecret || env.COPERNICUS_CLIENT_SECRET;
     this.timeoutMs = options?.timeoutMs || env.SATELLITE_REQUEST_TIMEOUT_MS;
 
-    this.client =
-      client ||
-      axios.create({
-        baseURL: this.baseUrl,
-        timeout: this.timeoutMs,
-        headers: {
-          Accept: 'application/json',
-          'User-Agent': 'AgriShield-Parametric/1.0',
-        },
-      });
+    this.authService =
+      options?.authService ||
+      (options?.clientId !== undefined || options?.clientSecret !== undefined || options?.authUrl !== undefined
+        ? new CopernicusAuthService({
+            authUrl: this.authUrl,
+            clientId: options?.clientId,
+            clientSecret: options?.clientSecret,
+            timeoutMs: this.timeoutMs,
+          })
+        : copernicusAuthService);
+
+    this.httpClient =
+      httpClient ||
+      (options?.baseUrl || options?.timeoutMs
+        ? new CopernicusHttpClient(this.authService, undefined, {
+            baseUrl: this.baseUrl,
+            timeoutMs: this.timeoutMs,
+          })
+        : copernicusHttpClient);
   }
 
-  public getClient(): AxiosInstance {
-    return this.client;
+  public getHttpClient(): CopernicusHttpClient {
+    return this.httpClient;
+  }
+
+  public getAuthService(): CopernicusAuthService {
+    return this.authService;
   }
 
   public getAuthUrl(): string {
@@ -266,7 +278,7 @@ export class CopernicusSatelliteProvider implements ISatelliteProvider {
     this.validatePolygon(boundary);
     this.validateDateRange(dateRange);
 
-    if (!this.clientId || !this.clientSecret) {
+    if (!this.authService.hasCredentials()) {
       throw AppError.serviceUnavailable(
         'Copernicus satellite provider credentials not configured (COPERNICUS_CLIENT_ID / COPERNICUS_CLIENT_SECRET). ' +
           'Stage 7.1 integration boundary: Live external API calls require backend credentials or MockSatelliteProvider test fixture.'
