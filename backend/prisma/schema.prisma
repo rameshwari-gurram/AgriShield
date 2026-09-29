@@ -75,6 +75,8 @@ model Farm {
   boundary            FarmBoundary?
   weatherRecords      WeatherRecord[]
   riskAssessments     RiskAssessment[]
+  satelliteObservations SatelliteObservation[]
+  ndviObservations      NdviObservation[]
 
   @@index([farmerId])
   @@index([cropName])
@@ -227,4 +229,49 @@ model RiskEvent {
   @@map("risk_events")
 }
 
+// ============================================================================
+// Module 7: Satellite Data and Vegetation Index (NDVI) Domain
+// ============================================================================
 
+model SatelliteObservation {
+  id              String           @id @default(uuid()) @db.Uuid
+  farmId          String           @db.Uuid
+  observedAt      DateTime         @db.Timestamptz(6)
+  provider        String           @db.VarChar(50)
+  satellite       String           @db.VarChar(50)
+  productType     String           @db.VarChar(50)
+  productId       String           @db.VarChar(150)
+  cloudCoverage   Decimal?         @db.Decimal(5, 2)
+  sourceReference String?          @db.Text
+  createdAt       DateTime         @default(now())
+
+  // Relationships
+  farm            Farm             @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  ndviObservation NdviObservation?
+
+  @@unique([farmId, productId], name: "farm_satellite_product_unique")
+  @@unique([farmId, observedAt], name: "farm_satellite_observation_unique")
+  @@index([farmId, observedAt(sort: Desc)])
+  @@index([productId])
+  @@map("satellite_observations")
+}
+
+model NdviObservation {
+  id                     String               @id @default(uuid()) @db.Uuid
+  farmId                 String               @db.Uuid
+  satelliteObservationId String               @unique @db.Uuid
+  observedAt             DateTime             @db.Timestamptz(6)
+  meanNdvi               Decimal              @db.Decimal(5, 4)
+  minNdvi                Decimal              @db.Decimal(5, 4)
+  maxNdvi                Decimal              @db.Decimal(5, 4)
+  validPixelPercentage   Decimal              @db.Decimal(5, 2)
+  createdAt              DateTime             @default(now())
+
+  // Relationships
+  farm                   Farm                 @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  satelliteObservation   SatelliteObservation @relation(fields: [satelliteObservationId], references: [id], onDelete: Cascade)
+
+  @@unique([farmId, observedAt], name: "farm_ndvi_observation_unique")
+  @@index([farmId, observedAt(sort: Desc)])
+  @@map("ndvi_observations")
+}

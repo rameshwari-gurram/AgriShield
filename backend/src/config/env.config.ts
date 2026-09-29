@@ -14,6 +14,12 @@ const envSchema = z.object({
   ML_SERVICE_URL: z.string().url().default('http://localhost:8000'),
   OPEN_METEO_BASE_URL: z.string().url().default('https://api.open-meteo.com/v1/forecast'),
   WEATHER_REQUEST_TIMEOUT_MS: z.string().default('8000').transform((val) => parseInt(val, 10)),
+  // Copernicus Data Space / Sentinel Hub Provider Settings (Module 7)
+  COPERNICUS_CLIENT_ID: z.string().optional(),
+  COPERNICUS_CLIENT_SECRET: z.string().optional(),
+  COPERNICUS_AUTH_URL: z.string().url().default('https://identity.dataspace.copernicus.eu/auth/realms/CDSE/protocol/openid-connect/token'),
+  COPERNICUS_BASE_URL: z.string().url().default('https://sh.dataspace.copernicus.eu/api/v1'),
+  SATELLITE_REQUEST_TIMEOUT_MS: z.string().default('15000').transform((val) => parseInt(val, 10)),
 });
 
 const parseEnv = () => {
