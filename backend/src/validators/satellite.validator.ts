@@ -270,6 +270,60 @@ export const historicalSatelliteQuerySchema = z
     }
   );
 
+export const syncSatelliteSchema = z
+  .object({
+    from: z
+      .string({ required_error: "'from' is required" })
+      .min(1, "'from' cannot be empty")
+      .refine(isValidIso8601, {
+        message: "'from' must be a valid ISO-8601 date or date-time string",
+      }),
+    to: z
+      .string({ required_error: "'to' is required" })
+      .min(1, "'to' cannot be empty")
+      .refine(isValidIso8601, {
+        message: "'to' must be a valid ISO-8601 date or date-time string",
+      }),
+    maxCloudCoverage: z
+      .number({ invalid_type_error: 'maxCloudCoverage must be a number' })
+      .min(0, 'maxCloudCoverage must be between 0.0 and 100.0')
+      .max(100, 'maxCloudCoverage must be between 0.0 and 100.0')
+      .optional(),
+  })
+  .refine(
+    (data) => {
+      const fromDate = new Date(data.from);
+      const toDate = new Date(data.to);
+      return fromDate <= toDate;
+    },
+    {
+      message: "Invalid date range: 'from' must be before or equal to 'to'",
+      path: ['from'],
+    }
+  )
+  .refine(
+    (data) => {
+      const toDate = new Date(data.to);
+      const nowWithSkew = new Date(Date.now() + 5 * 60 * 1000);
+      return toDate <= nowWithSkew;
+    },
+    {
+      message: "'to' date cannot be in the future",
+      path: ['to'],
+    }
+  );
+
+export const validateBody = (schema: z.ZodSchema) => {
+  return async (req: Request, _res: Response, next: NextFunction): Promise<void> => {
+    try {
+      req.body = await schema.parseAsync(req.body);
+      next();
+    } catch (error) {
+      next(error);
+    }
+  };
+};
+
 export const validateParams = (schema: z.ZodSchema) => {
   return async (req: Request, _res: Response, next: NextFunction): Promise<void> => {
     try {

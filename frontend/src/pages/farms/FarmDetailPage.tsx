@@ -22,6 +22,7 @@ import { Farm, FarmStatus, AreaUnit, AREA_UNITS, FARM_STATUSES, UpdateFarmInput,
 import { LoadingSpinner } from '../../components/LoadingSpinner';
 import { FarmBoundaryMap } from '../../components/maps/FarmBoundaryMap';
 import { FarmWeatherSection } from '../../components/weather/FarmWeatherSection';
+import { FarmSatelliteSection } from '../../components/satellite/FarmSatelliteSection';
 import { FarmRiskSection } from '../../components/risk/FarmRiskSection';
 
 export const FarmDetailPage: React.FC = () => {
@@ -466,6 +467,12 @@ export const FarmDetailPage: React.FC = () => {
               }
             : undefined
         }
+      />
+
+      {/* Satellite Remote Sensing & NDVI Section */}
+      <FarmSatelliteSection
+        farmId={farm.id}
+        hasBoundary={Boolean(boundary)}
       />
 
       {/* Climate Risk Assessment Section */}

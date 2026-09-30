@@ -98,9 +98,12 @@ Stores zonal aggregate NDVI metrics calculated over the farm boundary for a give
 - **Satellite Unit Tests (`satelliteNdvi.unit.test.ts`):** 69/69 passed (NDVI formulas, zero denominator, range checks, non-clamping, cloud/pixel percentage bounds, nullable cloud coverage, DTO normalization, provider abstraction).
 - **Copernicus Auth & HTTP Unit Tests (`copernicusAuthHttp.unit.test.ts`):** 49/49 passed (OAuth2 client credentials, token caching, early refresh, 401 single retry, 429 rate limit, timeout, provider error mapping, credential security).
 - **Copernicus Statistical API Unit Tests (`copernicusStatisticalApi.unit.test.ts`):** 44/44 passed (Evalscript v3, B04/B08/dataMask, spatial request generation, 10m resolution, daily intervals, WGS84 CRS, zero-data filtering, no band-mean approximations, range enforcement, 401 retry, secret masking, maxCloudCoverage config, product ID preservation).
+- **NDVI Processor Unit Tests (`ndviProcessor.unit.test.ts`):** 88/88 passed (pure calculation engine, valid pixel masking, division by zero, non-finite values, no synthetic fallbacks).
+- **Satellite Sync Integration Tests (`satelliteSync.integration.test.ts`):** 36/36 passed (Live PostgreSQL + PostGIS, first sync, repeat sync idempotency, 1:1 NDVI relationship, NO_DATA skip policy and metrics, multi-observation persistence, atomic transaction rollback).
+- **Satellite REST API Integration Tests (`satellite.api.integration.test.ts`):** 46/46 passed (Express + Live PostgreSQL + PostGIS, sync endpoint, idempotency, NO_DATA skipping, latest endpoint, historical time-series endpoint, limit, range validation, 400/404 error mapping).
 - **Satellite & NDVI Database Integration Tests (`satelliteNdvi.integration.test.ts`):** 66/66 passed (Live PostgreSQL + PostGIS, foreign key cascades, uniqueness constraints, 4-decimal precision, null cloud coverage persistence and DTO formatting, transaction rollback, service orchestration, Copernicus provider live DB persistence & idempotency).
-- **Total Satellite Test Suite (`npm run test:satellite`):** 228/228 passed.
-- **Repository Regression Tests:** 100% unaffected and passing across Modules 1–6 (794 tests across Farmers, Farms, Boundaries, Weather Provider/Service/Integration/API/Aggregation, Risk DB/Rule Engine/Assessment/API/Stage 6). Total repository tests: 1,022 passed.
+- **Total Satellite Test Suite (`npm run test:satellite`):** 398/398 passed across all 7 test suites.
+- **Repository Regression Tests:** 100% unaffected and passing across Modules 1–6 (739 tests across Farmers, Farms, Boundaries, Weather Provider/Service/Integration/API/Aggregation, Risk DB/Rule Engine/Assessment/API/Stage 6). Total repository tests: 1,137 passed.
 
 ---
 
@@ -266,5 +269,178 @@ Converts Copernicus Statistical API JSON responses into strongly-typed `Normaliz
 - **Zero Secrets Leakage:** Client secret, access token, and Authorization headers are masked and never present in error messages, API responses, or logs.
 - **Automated Mocked Tests:** All unit and integration test suites run against mocked HTTP clients and live PostgreSQL/PostGIS, remaining 100% green without requiring live Copernicus credentials.
 - **Safe Manual Verification:** Provided `backend/scripts/verifyCopernicusLive.ts` (`npm run verify:copernicus`) enables developers to test against the live Copernicus Data Space Ecosystem securely when credentials are provided in `.env`.
+
+---
+
+## 10. Stage 7.2-C: B04/B08 & NDVI Processing Engine
+
+### 10.1 Pure Processing Layer (`NdviProcessorService`)
+Stage 7.2-C provides a deterministic, pure calculation engine that decouples spectral evaluation from network transport and database storage:
+- **Location:** `backend/src/services/ndviProcessor.service.ts`
+- **Responsibilities:**
+  - Evaluates B04 (Red) and B08 (NIR) band reflectance arrays.
+  - Applies pixel-level data masking via Sentinel-2 `dataMask`.
+  - Calculates farm-scale aggregate statistics: `meanNdvi`, `minNdvi`, `maxNdvi`, and `validPixelPercentage`.
+  - Enforces mathematical boundaries $[-1.0, 1.0]$ and detects division by zero ($B08 + B04 = 0$).
+  - Distinguishes usable observations (`status: "VALID"`) from non-usable observations (`status: "NO_DATA"`).
+  - Strictly rejects fabricating synthetic approximations from separate band means.
+
+---
+
+## 11. Stage 7.2-D: Database Persistence & Idempotent Satellite Sync
+
+### 11.1 Zero Schema Modifications Invariant
+> [!IMPORTANT]
+> **Stage 7.2-D required zero Prisma schema changes and zero database migrations.**
+> All required tables (`satellite_observations`, `ndvi_observations`), columns, data types, indexes, and unique constraints were already established in Stage 7.1 migrations `20260927184103_add_satellite_ndvi_observations` and `20260929193810_make_satellite_cloud_coverage_nullable`.
+
+### 11.2 Existing Database Constraints & Indexes
+1. **`satellite_observations`:**
+   - `@@unique([farmId, productId], name: "farm_satellite_product_unique")`
+   - `@@unique([farmId, observedAt], name: "farm_satellite_observation_unique")`
+   - `@@index([farmId, observedAt(sort: Desc)])`
+   - `@@index([productId])`
+2. **`ndvi_observations`:**
+   - `@@unique([satelliteObservationId])` (enforces strict 1-to-1 linkage)
+   - `@@unique([farmId, observedAt], name: "farm_ndvi_observation_unique")`
+   - `@@index([farmId, observedAt(sort: Desc)])`
+
+### 11.3 Idempotency Mechanism (`farmId + productId`)
+Synchronization operations utilize the composite unique constraint `farm_satellite_product_unique: { farmId, productId }` as the authoritative upsert key:
+- **First Ingestion:** Creates both the `SatelliteObservation` record and its linked `NdviObservation` record within an atomic Prisma transaction.
+- **Repeat Synchronization:** Updates existing observations with fresh statistics (e.g., recomputed aggregate metrics or cloud coverage) without creating duplicate rows or altering the primary key UUID.
+- **Multi-granule Overpasses:** If two distinct satellite products occur at the same timestamp (e.g., overlapping orbits or re-evaluations), `(farmId, observedAt)` provides defense-in-depth against duplicate time-series charting entries.
+
+### 11.4 Strict 1:1 Relationship (`satelliteObservationId`)
+- Every `NdviObservation` references exactly one parent `SatelliteObservation` via `satelliteObservationId`.
+- The `satelliteObservationId` column carries a unique constraint (`@@unique([satelliteObservationId])`), preventing orphaned or multiply-linked NDVI calculations.
+- Deleting a parent `SatelliteObservation` or `Farm` cleanly cascades via foreign key constraints (`ON DELETE CASCADE`), ensuring database referential integrity.
+
+### 11.5 Transactional Batch Persistence (`prisma.$transaction`)
+All batch operations in `SatelliteRepository.upsertMany` execute inside an interactive PostgreSQL transaction:
+```typescript
+await prisma.$transaction(async (tx) => {
+  for (const item of observations) {
+    const satelliteRecord = await tx.satelliteObservation.upsert({ ... });
+    await tx.ndviObservation.upsert({
+      where: { satelliteObservationId: satelliteRecord.id },
+      ...
+    });
+  }
+});
+```
+- **Atomicity:** If any individual upsert violates database constraints (e.g., column length, invalid foreign key), the entire transaction rolls back completely. Zero partial satellite or NDVI rows are persisted.
+
+### 11.6 NO_DATA Handling Policy & Invariants
+Database columns `meanNdvi`, `minNdvi`, `maxNdvi`, and `validPixelPercentage` are defined as `NOT NULL`. Attempting to persist null values violates database constraints.
+To preserve integrity without fabricating synthetic values:
+1. **Detection:** Observations with `status = "NO_DATA"`, `validPixelCount = 0`, or missing/null NDVI statistics are identified via `isNoDataObservation`.
+2. **Persistence Filtering:** `SatelliteService.persistBatch` filters out NO_DATA observations before database transaction dispatch.
+3. **Audit Metric:** Filtered records increment `skippedNoDataCount` in `SatelliteSyncResultDTO`:
+   ```typescript
+   export interface SatelliteSyncResultDTO {
+     farmId: string;
+     syncedCount: number;
+     skippedNoDataCount: number;
+     totalFetched: number;
+     observations: NdviObservationResponseDTO[];
+   }
+   ```
+4. **Single Observation Ingestion:** `SatelliteService.persistNormalizedObservation` strictly rejects single NO_DATA observations with `400 Bad Request` rather than inserting corrupt records.
+5. **No Synthetic Values:** No fake zero or interpolated NDVI values are ever fabricated. Observations without valid pixels are safely omitted from database storage.
+
+---
+
+## 12. Stage 7.2-E: REST API Layer
+
+### 12.1 Architecture & Route Hierarchy
+Stage 7.2-E exposes satellite synchronization and NDVI query capabilities through RESTful HTTP endpoints conforming to AgriShield's clean architecture conventions:
+```
+Express Router (satellite.routes.ts)
+        ↓
+Validation Middlewares (validateParams, validateBody, validateQuery)
+        ↓
+SatelliteController (thin orchestrator)
+        ↓
+SatelliteService (domain business logic & boundary resolution)
+        ↓
+SatelliteRepository / CopernicusSatelliteProvider
+        ↓
+PostgreSQL 16 + PostGIS / Copernicus Data Space Ecosystem
+```
+
+Mounted within `backend/src/routes/v1/farm.routes.ts` alongside existing farm sub-resources:
+- `/api/v1/farms/:farmId/boundary` $\to$ `farmBoundaryRoutes`
+- `/api/v1/farms/:farmId/weather` $\to$ `weatherRoutes`
+- `/api/v1/farms/:farmId/risk-assessments` $\to$ `farmRiskRoutes`
+- `/api/v1/farms/:farmId/satellite` $\to$ `satelliteRoutes` (`Router({ mergeParams: true })`)
+
+### 12.2 Endpoints Specification
+
+#### 1. Synchronize Satellite Observations
+- **HTTP Method:** `POST`
+- **Route:** `/api/v1/farms/:farmId/satellite/sync`
+- **Path Parameters:**
+  - `farmId` (UUID v4, required): Verified via `farmIdParamForSatelliteSchema`.
+- **Request Body (JSON):**
+  ```json
+  {
+    "from": "2026-09-01T00:00:00.000Z",
+    "to": "2026-09-30T00:00:00.000Z",
+    "maxCloudCoverage": 80.0
+  }
+  ```
+  - `from` (string, ISO-8601, required): Observation window start.
+  - `to` (string, ISO-8601, required): Observation window end.
+  - `maxCloudCoverage` (number, 0.0–100.0, optional): Scene-level cloudiness filter.
+  - Validation Rules: `from <= to`, `to <= now (+ 5 min clock skew)`.
+- **Response Status:** `200 OK`
+- **Response Payload:** `ApiResponse.success(SatelliteSyncResultDTO)`:
+  ```json
+  {
+    "success": true,
+    "message": "Satellite data synchronized successfully",
+    "data": {
+      "farmId": "...",
+      "syncedCount": 2,
+      "skippedNoDataCount": 1,
+      "totalFetched": 3,
+      "observations": [ ... ]
+    },
+    "timestamp": "...",
+    "correlationId": "..."
+  }
+  ```
+
+#### 2. Get Latest NDVI Observation
+- **HTTP Method:** `GET`
+- **Route:** `/api/v1/farms/:farmId/satellite/latest`
+- **Path Parameters:**
+  - `farmId` (UUID v4, required)
+- **Response Status:** `200 OK` (or `404 Not Found` if farm has no observations, matching Weather & Risk APIs).
+- **Response Payload:** `ApiResponse.success(NdviObservationResponseDTO)`.
+
+#### 3. Get Historical NDVI Observations
+- **HTTP Method:** `GET`
+- **Route:** `/api/v1/farms/:farmId/satellite`
+- **Query Parameters:**
+  - `from` (string, ISO-8601, optional)
+  - `to` (string, ISO-8601, optional)
+  - `limit` (positive integer, optional, default: 100)
+- **Ordering:** Strictly chronologically ascending (`observedAt ASC`).
+- **Response Status:** `200 OK`.
+- **Response Payload:** `ApiResponse.success(NdviObservationResponseDTO[])`.
+
+### 12.3 Error Mapping
+Errors pass through `next(error)` to `backend/src/middleware/error.middleware.ts`:
+- **Invalid UUID in `farmId`:** HTTP 400 (`Validation failed`).
+- **Invalid date format or `from > to` or future `to`:** HTTP 400 (`Validation failed`).
+- **Farm does not exist:** HTTP 404 (`Farm with ID ... not found.`).
+- **Farm has no boundary:** HTTP 404 (`Farm boundary not found for farm ID ... . Satellite processing requires an authoritative spatial polygon.`).
+- **Farm has no observations (on `/latest`):** HTTP 404 (`No satellite NDVI observations found for farm '...'`).
+- **Malformed boundary GeoJSON:** HTTP 400 (`Malformed farm boundary GeoJSON stored for farm.`).
+- **Copernicus provider failure / timeout:** Mapped cleanly to HTTP 401, 429, or 503 without secret leakage.
+- **Database constraint failure:** Handled transactionally with full rollback.
+
 
 

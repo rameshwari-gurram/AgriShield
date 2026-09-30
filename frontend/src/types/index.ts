@@ -4,6 +4,7 @@ export * from './farm';
 export * from './boundary';
 export * from './weather';
 export * from './risk';
+export * from './satellite';
 
 export type ServiceStatusType = 'healthy' | 'degraded' | 'unhealthy' | 'loading' | 'offline';
 

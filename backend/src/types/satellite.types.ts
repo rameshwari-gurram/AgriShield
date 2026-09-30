@@ -83,6 +83,19 @@ export interface NdviObservationResponseDTO {
 }
 
 /**
+ * Stage 7.2-D: Satellite Synchronization Result DTO.
+ * Exposes synchronization audit metrics including total fetched observations,
+ * successfully persisted count, skipped NO_DATA count, and formatted NDVI observations.
+ */
+export interface SatelliteSyncResultDTO {
+  farmId: string;
+  syncedCount: number;
+  skippedNoDataCount: number;
+  totalFetched: number;
+  observations: NdviObservationResponseDTO[];
+}
+
+/**
  * Time range filter for historical satellite and NDVI queries.
  */
 export interface SatelliteTimeRangeQueryDTO {
@@ -245,5 +258,83 @@ export interface CopernicusAuthConfig {
 export interface CopernicusHttpClientConfig {
   baseUrl?: string;
   timeoutMs?: number;
+}
+
+/**
+ * Stage 7.2-C: Pixel observation sample input for pure NDVI processing.
+ * Represents raw surface reflectance values for Sentinel-2 MSI visible and NIR bands.
+ */
+export interface PixelObservationInput {
+  red?: number | null; // Sentinel-2 B04 (665 nm)
+  b04?: number | null; // Alias for Sentinel-2 B04
+  nir?: number | null; // Sentinel-2 B08 (842 nm)
+  b08?: number | null; // Alias for Sentinel-2 B08
+  dataMask?: number | boolean | null; // 1 = valid/within parcel, 0 = no-data/outside parcel
+  ndvi?: number | null; // Optional precomputed pixel NDVI
+}
+
+/**
+ * Stage 7.2-C: Pixel validity / invalidity classification reasons.
+ */
+export type PixelNdviValidityReason =
+  | 'VALID'
+  | 'NO_DATA_MASK'
+  | 'MISSING_BAND'
+  | 'NON_FINITE_INPUT'
+  | 'ZERO_DENOMINATOR'
+  | 'OUT_OF_BOUNDS';
+
+/**
+ * Stage 7.2-C: Single-pixel NDVI calculation result.
+ */
+export interface PixelNdviResult {
+  valid: boolean;
+  ndvi: number | null;
+  reason: PixelNdviValidityReason;
+}
+
+/**
+ * Stage 7.2-C: Farm-level aggregate NDVI statistics.
+ */
+export interface FarmNdviStatistics {
+  meanNdvi: number | null;
+  minNdvi: number | null;
+  maxNdvi: number | null;
+  validPixelPercentage: number;
+  validPixelCount: number;
+  totalPixelCount: number;
+  status: 'VALID' | 'NO_DATA' | 'INSUFFICIENT_DATA';
+  reason?: string;
+}
+
+/**
+ * Stage 7.2-C: Input payload for observation-level NDVI processing.
+ */
+export interface ProcessObservationInput {
+  farmId?: string;
+  observedAt: Date | string;
+  provider?: string;
+  satellite?: string;
+  productType?: string;
+  productId?: string;
+  cloudCoverage?: number | null;
+  sourceReference?: string | null;
+  pixels: Array<PixelObservationInput | number>;
+}
+
+/**
+ * Stage 7.2-C: Observation-level NDVI processing result.
+ */
+export interface ProcessedObservationNdviResult {
+  farmId?: string;
+  observedAt: Date;
+  provider: string;
+  satellite: string;
+  productType: string;
+  productId: string;
+  cloudCoverage: number | null;
+  sourceReference: string | null;
+  statistics: FarmNdviStatistics;
+  normalizedObservation: NormalizedNdviObservationDTO | null;
 }
 

@@ -556,9 +556,13 @@ async function runSatelliteNdviUnitTests() {
   assert(reversedDateRangeCaught, '9.5 Reversed date range (from > to) rejected with 400 Bad Request');
 
   // Clean integration boundary error when credentials not configured
+  const unconfiguredProvider = new CopernicusSatelliteProvider(undefined, {
+    clientId: '',
+    clientSecret: '',
+  });
   let integrationBoundaryCaught = false;
   try {
-    await provider.fetchNdviObservations(validPolygon, validDateRange);
+    await unconfiguredProvider.fetchNdviObservations(validPolygon, validDateRange);
   } catch (err) {
     if (err instanceof AppError && err.statusCode === 503 && err.message.includes('Stage 7.1 integration boundary')) {
       integrationBoundaryCaught = true;

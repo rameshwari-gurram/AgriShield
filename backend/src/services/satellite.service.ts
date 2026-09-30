@@ -12,6 +12,7 @@ import {
   NormalizedNdviObservationDTO,
   SatelliteObservationResponseDTO,
   NdviObservationResponseDTO,
+  SatelliteSyncResultDTO,
   SatelliteTimeRangeQueryDTO,
   GeoJSONPolygon,
 } from '../types/satellite.types.js';
@@ -26,6 +27,25 @@ import {
   validateNormalizedObservationPair,
   validateObservationTimestamp,
 } from '../validators/satellite.validator.js';
+
+/**
+ * Stage 7.2-D: Checks whether an observation represents NO_DATA / unusable observation.
+ * In accordance with Stage 7.2-D requirements:
+ * Observations with status 'NO_DATA', zero valid pixels, missing/null NDVI metrics,
+ * or non-finite values are filtered out before persistence to maintain database integrity
+ * without fabricating false numbers.
+ */
+export function isNoDataObservation(obs: any): boolean {
+  if (!obs) return true;
+  if (obs.status === 'NO_DATA') return true;
+  if (!obs.ndvi) return true;
+  if (obs.ndvi.meanNdvi === null || obs.ndvi.meanNdvi === undefined) return true;
+  if (typeof obs.ndvi.meanNdvi === 'number' && (isNaN(obs.ndvi.meanNdvi) || !isFinite(obs.ndvi.meanNdvi))) return true;
+  if (obs.ndvi.minNdvi === null || obs.ndvi.minNdvi === undefined) return true;
+  if (obs.ndvi.maxNdvi === null || obs.ndvi.maxNdvi === undefined) return true;
+  if (obs.ndvi.validPixelPercentage === 0 || obs.ndvi.validPixelPercentage === null || obs.ndvi.validPixelPercentage === undefined) return true;
+  return false;
+}
 
 export class SatelliteService {
   private satRepo: ISatelliteRepository;
@@ -42,6 +62,13 @@ export class SatelliteService {
     this.satRepo = satRepo;
     this.boundaryRepo = boundaryRepo;
     this.farmRepo = farmRepo;
+    this.provider = provider;
+  }
+
+  /**
+   * Sets or swaps the satellite provider instance (e.g. for testing with mock provider fixtures).
+   */
+  public setProvider(provider: ISatelliteProvider): void {
     this.provider = provider;
   }
 
@@ -95,6 +122,12 @@ export class SatelliteService {
     satelliteObservation: SatelliteObservationResponseDTO;
     ndviObservation: NdviObservationResponseDTO;
   }> {
+    if (isNoDataObservation(observation)) {
+      throw AppError.badRequest(
+        'Cannot persist observation with NO_DATA status or null/zero NDVI metrics.'
+      );
+    }
+
     const validFarmId = validateFarmId(farmId);
     const validatedObs = validateNormalizedObservationPair(observation);
 
@@ -120,6 +153,7 @@ export class SatelliteService {
 
   /**
    * Validate and persist a batch of normalized observation pairs atomically.
+   * Filters out NO_DATA observations according to Stage 7.2-D policy.
    */
   async persistBatch(
     farmId: string,
@@ -127,6 +161,7 @@ export class SatelliteService {
   ): Promise<{
     satelliteObservations: SatelliteObservationResponseDTO[];
     ndviObservations: NdviObservationResponseDTO[];
+    skippedNoDataCount: number;
   }> {
     const validFarmId = validateFarmId(farmId);
 
@@ -137,10 +172,26 @@ export class SatelliteService {
     }
 
     if (!observations || observations.length === 0) {
-      return { satelliteObservations: [], ndviObservations: [] };
+      return { satelliteObservations: [], ndviObservations: [], skippedNoDataCount: 0 };
     }
 
-    const validatedBatch = observations.map((obs) => validateNormalizedObservationPair(obs));
+    // Filter NO_DATA observations
+    const validBatch: NormalizedNdviObservationDTO[] = [];
+    let skippedNoDataCount = 0;
+
+    for (const obs of observations) {
+      if (isNoDataObservation(obs)) {
+        skippedNoDataCount++;
+      } else {
+        validBatch.push(obs);
+      }
+    }
+
+    if (validBatch.length === 0) {
+      return { satelliteObservations: [], ndviObservations: [], skippedNoDataCount };
+    }
+
+    const validatedBatch = validBatch.map((obs) => validateNormalizedObservationPair(obs));
 
     const { satelliteObservations, ndviObservations } = await this.satRepo.persistBatch(
       validFarmId,
@@ -157,6 +208,7 @@ export class SatelliteService {
           satelliteObservation: satMap.get(n.satelliteObservationId),
         })
       ),
+      skippedNoDataCount,
     };
   }
 
@@ -215,18 +267,15 @@ export class SatelliteService {
    * 2. Confirm farm existence.
    * 3. Fetch FarmBoundary geometry (authoritative spatial input).
    * 4. Call satellite provider to fetch normalized NDVI observations.
-   * 5. Validate observations.
-   * 6. Transactionally persist into database.
-   * 7. Return normalized response DTOs.
+   * 5. Filter out NO_DATA observations (Stage 7.2-D policy) and track skippedNoDataCount.
+   * 6. Atomically persist valid observations using (farmId + productId) idempotency.
+   * 7. Return SatelliteSyncResultDTO.
    */
   async syncSatelliteObservations(
     farmId: string,
-    dateRange: { from: Date; to: Date }
-  ): Promise<{
-    farmId: string;
-    syncedCount: number;
-    observations: NdviObservationResponseDTO[];
-  }> {
+    dateRange: { from: Date; to: Date },
+    options?: { maxCloudCoverage?: number }
+  ): Promise<SatelliteSyncResultDTO> {
     const validFarmId = validateFarmId(farmId);
 
     // 1. Verify farm exists
@@ -251,14 +300,20 @@ export class SatelliteService {
     }
 
     // 3. Fetch observations from satellite provider
-    const normalizedObservations = await this.provider.fetchNdviObservations(polygon, dateRange);
+    const fetchedObservations = await this.provider.fetchNdviObservations(polygon, dateRange, options);
+    const totalFetched = Array.isArray(fetchedObservations) ? fetchedObservations.length : 0;
 
-    // 4. Atomically persist observations
-    const { ndviObservations } = await this.persistBatch(validFarmId, normalizedObservations);
+    // 4. Atomically persist observations with NO_DATA filtering (Stage 7.2-D Policy)
+    const { ndviObservations, skippedNoDataCount } = await this.persistBatch(
+      validFarmId,
+      fetchedObservations
+    );
 
     return {
       farmId: validFarmId,
       syncedCount: ndviObservations.length,
+      skippedNoDataCount,
+      totalFetched,
       observations: ndviObservations,
     };
   }

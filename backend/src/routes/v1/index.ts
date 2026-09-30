@@ -20,4 +20,5 @@ router.use('/risk-rules', riskRuleRoutes);
 
 export const v1Routes = router;
 export { weatherRoutes } from './weather.routes.js';
+export { satelliteRoutes } from '../satellite.routes.js';
 
