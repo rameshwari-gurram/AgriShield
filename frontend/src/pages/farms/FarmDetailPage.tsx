@@ -24,6 +24,7 @@ import { FarmBoundaryMap } from '../../components/maps/FarmBoundaryMap';
 import { FarmWeatherSection } from '../../components/weather/FarmWeatherSection';
 import { FarmSatelliteSection } from '../../components/satellite/FarmSatelliteSection';
 import { FarmRiskSection } from '../../components/risk/FarmRiskSection';
+import { FarmMlRiskSection } from '../../components/mlRisk/FarmMlRiskSection';
 
 export const FarmDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -477,6 +478,9 @@ export const FarmDetailPage: React.FC = () => {
 
       {/* Climate Risk Assessment Section */}
       <FarmRiskSection farmId={farm.id} />
+
+      {/* Advisory Machine Learning Risk Assessment Section (Module 8) */}
+      <FarmMlRiskSection farmId={farm.id} />
 
       {/* Edit Modal */}
       {isEditing && (

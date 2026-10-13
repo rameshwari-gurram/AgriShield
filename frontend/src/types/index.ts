@@ -5,6 +5,7 @@ export * from './boundary';
 export * from './weather';
 export * from './risk';
 export * from './satellite';
+export * from './mlRisk';
 
 export type ServiceStatusType = 'healthy' | 'degraded' | 'unhealthy' | 'loading' | 'offline';
 

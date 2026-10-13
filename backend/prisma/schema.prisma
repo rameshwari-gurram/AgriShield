@@ -77,6 +77,7 @@ model Farm {
   riskAssessments     RiskAssessment[]
   satelliteObservations SatelliteObservation[]
   ndviObservations      NdviObservation[]
+  mlRiskPredictions     MlRiskPrediction[]
 
   @@index([farmerId])
   @@index([cropName])
@@ -274,4 +275,33 @@ model NdviObservation {
   @@unique([farmId, observedAt], name: "farm_ndvi_observation_unique")
   @@index([farmId, observedAt(sort: Desc)])
   @@map("ndvi_observations")
+}
+
+// ============================================================================
+// Module 8: Machine Learning Risk Prediction & Explainability Domain
+// ============================================================================
+
+model MlRiskPrediction {
+  id                     String   @id @default(uuid()) @db.Uuid
+  farmId                 String   @db.Uuid
+  assessedAt             DateTime @db.Timestamptz(6)
+  inputFingerprint       String   @db.VarChar(64)
+  predictedClass         Int      @db.Integer
+  calibratedProbability  Decimal  @db.Decimal(6, 5)
+  rawDecisionMargin      Decimal  @db.Decimal(10, 5)
+  featureSnapshot        Json     @db.JsonB
+  shapExplanation        Json     @db.JsonB
+  modelName              String   @db.VarChar(100)
+  modelVersion           String   @db.VarChar(50)
+  featureContractVersion String   @db.VarChar(20)
+  disclaimer             String   @db.Text
+  createdAt              DateTime @default(now()) @db.Timestamptz(6)
+
+  // Relationships
+  farm                   Farm     @relation(fields: [farmId], references: [id], onDelete: Cascade)
+
+  @@index([farmId, assessedAt(sort: Desc)])
+  @@index([farmId, inputFingerprint])
+  @@index([assessedAt])
+  @@map("ml_risk_predictions")
 }

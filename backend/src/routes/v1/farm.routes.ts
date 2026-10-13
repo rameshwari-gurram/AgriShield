@@ -14,6 +14,7 @@ import { farmBoundaryRoutes } from './farmBoundary.routes.js';
 import { weatherRoutes } from '../weather.routes.js';
 import { farmRiskRoutes } from '../riskAssessment.routes.js';
 import { satelliteRoutes } from '../satellite.routes.js';
+import { mlRiskRoutes } from './mlRisk.routes.js';
 
 const router = Router();
 
@@ -28,6 +29,9 @@ router.use('/:farmId/risk-assessments', farmRiskRoutes);
 
 // Mount farm satellite sub-routes (/api/v1/farms/:farmId/satellite)
 router.use('/:farmId/satellite', satelliteRoutes);
+
+// Mount farm ML risk advisory sub-routes (/api/v1/farms/:farmId/ml-risk)
+router.use('/:farmId/ml-risk', mlRiskRoutes);
 
 // Register new farm
 router.post(

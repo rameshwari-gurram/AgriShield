@@ -42,8 +42,9 @@ class HealthService:
 
     @staticmethod
     def get_readiness() -> ReadinessResponse:
+        from app.services.inference_service import inference_service
         return ReadinessResponse(
-            ready=True,
+            ready=inference_service.is_ready(),
             service=settings.APP_NAME,
         )
 

@@ -6,9 +6,17 @@ from app.utils.config import settings
 from app.utils.logger import logger
 
 
+from app.api.v1.predict import router as predict_router
+from app.services.inference_service import inference_service
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info(f"Starting {settings.APP_NAME} in {settings.ENVIRONMENT} mode...")
+    try:
+        inference_service.initialize()
+    except Exception as e:
+        logger.error(f"Error during startup model initialization: {e}")
     yield
     logger.info(f"Shutting down {settings.APP_NAME}...")
 
@@ -40,8 +48,12 @@ async def root():
         "version": "1.0.0",
         "docs": "/docs",
         "health": "/api/v1/health",
+        "predict": "/predict",
     }
 
 
 # Include versioned API router
 app.include_router(api_v1_router)
+
+# Mount direct production prediction endpoint POST /predict
+app.include_router(predict_router)
