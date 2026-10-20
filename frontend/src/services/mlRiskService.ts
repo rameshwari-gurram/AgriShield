@@ -7,12 +7,13 @@
  */
 
 import { apiClient } from './api';
-import { ApiResponse, MlRiskPredictionDTO, GetFarmRiskOptions } from '../types';
+import { ApiResponse, MlRiskPredictionDTO, GetFarmRiskOptions, NdviForecastResponse } from '../types';
 
 export interface ParsedMlRiskError {
   message: string;
   statusCode?: number;
   isInsufficientData: boolean;
+  isNoSatelliteData?: boolean;
   isAuthError: boolean;
   isServiceUnavailable: boolean;
   isNotFound: boolean;
@@ -60,11 +61,35 @@ export function parseMlRiskErrorMessage(
       backendMessage.toLowerCase().includes('weather records'));
 
   if (isInsufficientData) {
+    const isNdviWindow =
+      backendMessage.includes('168') ||
+      backendMessage.toLowerCase().includes('7-day') ||
+      backendMessage.toLowerCase().includes('vegetation');
+
+    const message = isNdviWindow
+      ? 'Insufficient Weather Telemetry: A complete 7-day (168-hour) weather observation window is required to generate the vegetation forecast. Please synchronize weather data first.'
+      : 'Insufficient Weather Telemetry: A continuous 30-day (720-hour) weather observation history is required to construct the ML feature vector. Please synchronize weather data first.';
+
     return {
-      message:
-        'Insufficient Weather Telemetry: A continuous 30-day (720-hour) weather observation history is required to construct the ML feature vector. Please synchronize weather data first.',
+      message,
       statusCode: 400,
       isInsufficientData: true,
+      isNoSatelliteData: false,
+      isAuthError: false,
+      isServiceUnavailable: false,
+      isNotFound: false,
+      details,
+    };
+  }
+
+  // Check for Missing Satellite Data
+  if (backendMessage.includes('NO_SATELLITE_DATA')) {
+    return {
+      message:
+        'No Sentinel-2 satellite NDVI observations recorded for this farm yet. Please sync satellite observations first to generate a vegetation forecast.',
+      statusCode: 400,
+      isInsufficientData: false,
+      isNoSatelliteData: true,
       isAuthError: false,
       isServiceUnavailable: false,
       isNotFound: false,
@@ -179,6 +204,32 @@ export const mlRiskService = {
 
     const response = await apiClient.get<ApiResponse<MlRiskPredictionDTO>>(
       `/farms/${farmId}/ml-risk`,
+      config
+    );
+
+    return response.data;
+  },
+
+  /**
+   * Retrieves 7-day ahead Sentinel-2 NDVI vegetation condition forecast
+   * and 29-feature SHAP attributions for a farm parcel.
+   *
+   * Calls GET /api/v1/farms/:farmId/ml-risk/ndvi-forecast
+   */
+  async getFarmNdviForecast(
+    farmId: string,
+    options?: GetFarmRiskOptions
+  ): Promise<ApiResponse<NdviForecastResponse>> {
+    const config: Record<string, any> = {};
+
+    if (options?.token) {
+      config.headers = {
+        Authorization: `Bearer ${options.token}`,
+      };
+    }
+
+    const response = await apiClient.get<ApiResponse<NdviForecastResponse>>(
+      `/farms/${farmId}/ml-risk/ndvi-forecast`,
       config
     );
 

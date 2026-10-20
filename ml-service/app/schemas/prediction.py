@@ -177,3 +177,102 @@ class PredictionResponse(BaseModel):
     explanation: ExplanationResult
     model: ModelInfo
     disclaimer: str
+
+
+# =============================================================================
+# NDVI VEGETATION FORECAST SCHEMAS (29 FEATURES)
+# =============================================================================
+
+class NdviPredictionRequest(BaseModel):
+    """
+    Input feature request contract for 7-day ahead NDVI vegetation forecast.
+    Preserves native missing value handling (None/NaN) for historical optical lags.
+    """
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "example": {
+                "NDVI": 0.42,
+                "Rainfall_Current": 12.5,
+                "Temperature_Current": 28.4,
+                "NDVI_lag_1": 0.41,
+                "NDVI_lag_2": 0.39,
+                "NDVI_lag_3": 0.38,
+                "NDVI_lag_4": 0.36,
+                "NDVI_lag_8": 0.35,
+                "NDVI_change_1w": 0.01,
+                "NDVI_change_2w": 0.03,
+                "NDVI_change_4w": 0.06,
+                "Rainfall_lag_1": 8.0,
+                "Rainfall_lag_2": 0.0,
+                "Rainfall_lag_4": 15.0,
+                "Rainfall_rolling_2w": 20.5,
+                "Rainfall_rolling_4w": 45.0,
+                "Rainfall_rolling_8w": 98.0,
+                "Temperature_lag_1": 29.0,
+                "Temperature_lag_2": 29.5,
+                "Temperature_lag_4": 30.1,
+                "Temperature_rolling_2w": 28.8,
+                "Temperature_rolling_4w": 29.2,
+                "Temperature_rolling_8w": 29.8,
+                "Week_Sin": 0.5,
+                "Week_Cos": 0.866,
+                "Month_Sin": 0.5,
+                "Month_Cos": 0.866,
+                "Latitude": 19.75,
+                "Longitude": 75.71,
+            }
+        }
+    )
+
+    NDVI: float = Field(..., ge=-0.2, le=1.0, description="Current week mean Sentinel-2 NDVI [-0.2, 1.0]")
+    Rainfall_Current: float = Field(..., ge=0.0, description="Current week cumulative rainfall (mm)")
+    Temperature_Current: float = Field(..., description="Current week mean temperature (°C)")
+    NDVI_lag_1: Optional[float] = Field(default=None, description="NDVI 1 week prior")
+    NDVI_lag_2: Optional[float] = Field(default=None, description="NDVI 2 weeks prior")
+    NDVI_lag_3: Optional[float] = Field(default=None, description="NDVI 3 weeks prior")
+    NDVI_lag_4: Optional[float] = Field(default=None, description="NDVI 4 weeks prior")
+    NDVI_lag_8: Optional[float] = Field(default=None, description="NDVI 8 weeks prior")
+    NDVI_change_1w: Optional[float] = Field(default=None, description="NDVI change over 1 week")
+    NDVI_change_2w: Optional[float] = Field(default=None, description="NDVI change over 2 weeks")
+    NDVI_change_4w: Optional[float] = Field(default=None, description="NDVI change over 4 weeks")
+    Rainfall_lag_1: Optional[float] = Field(default=None, description="Rainfall 1 week prior (mm)")
+    Rainfall_lag_2: Optional[float] = Field(default=None, description="Rainfall 2 weeks prior (mm)")
+    Rainfall_lag_4: Optional[float] = Field(default=None, description="Rainfall 4 weeks prior (mm)")
+    Rainfall_rolling_2w: Optional[float] = Field(default=None, description="2-week rolling cumulative rainfall (mm)")
+    Rainfall_rolling_4w: Optional[float] = Field(default=None, description="4-week rolling cumulative rainfall (mm)")
+    Rainfall_rolling_8w: Optional[float] = Field(default=None, description="8-week rolling cumulative rainfall (mm)")
+    Temperature_lag_1: Optional[float] = Field(default=None, description="Temperature 1 week prior (°C)")
+    Temperature_lag_2: Optional[float] = Field(default=None, description="Temperature 2 weeks prior (°C)")
+    Temperature_lag_4: Optional[float] = Field(default=None, description="Temperature 4 weeks prior (°C)")
+    Temperature_rolling_2w: Optional[float] = Field(default=None, description="2-week rolling mean temperature (°C)")
+    Temperature_rolling_4w: Optional[float] = Field(default=None, description="4-week rolling mean temperature (°C)")
+    Temperature_rolling_8w: Optional[float] = Field(default=None, description="8-week rolling mean temperature (°C)")
+    Week_Sin: float = Field(..., ge=-1.0, le=1.0, description="Cyclical sine encoding of week of year")
+    Week_Cos: float = Field(..., ge=-1.0, le=1.0, description="Cyclical cosine encoding of week of year")
+    Month_Sin: float = Field(..., ge=-1.0, le=1.0, description="Cyclical sine encoding of month")
+    Month_Cos: float = Field(..., ge=-1.0, le=1.0, description="Cyclical cosine encoding of month")
+    Latitude: float = Field(..., ge=-90.0, le=90.0, description="Farm centroid latitude (-90 to 90)")
+    Longitude: float = Field(..., ge=-180.0, le=180.0, description="Farm centroid longitude (-180 to 180)")
+
+
+class NdviExplanationResult(BaseModel):
+    """SHAP TreeExplainer attribution breakdown in NDVI unit space."""
+    base_value: float = Field(..., description="Expected baseline NDVI across training population")
+    reconstructed_prediction: float = Field(..., description="Sum of base_value and all SHAP contributions")
+    additivity_error: float = Field(..., description="Discrepancy between predicted_ndvi and reconstructed_prediction")
+    attributions: List[FeatureAttributionResponse] = Field(..., description="SHAP feature attributions")
+
+
+class NdviPredictionResponse(BaseModel):
+    """Complete response payload for POST /predict/ndvi."""
+    predicted_ndvi: float = Field(..., description="Predicted NDVI for the subsequent week")
+    current_ndvi: float = Field(..., description="Current week observed Sentinel-2 NDVI")
+    predicted_delta: float = Field(..., description="Predicted change in NDVI (predicted - current)")
+    forecast_horizon: str = Field(default="7_days", description="Forecast time horizon")
+    target_variable: str = Field(default="NDVI_next_week", description="Target variable name")
+    baseline_persistence_ndvi: float = Field(..., description="Persistence baseline forecast (NDVI_current)")
+    explanation: NdviExplanationResult
+    model: ModelInfo
+    disclaimer: str
+

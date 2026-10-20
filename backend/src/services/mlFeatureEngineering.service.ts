@@ -168,10 +168,11 @@ export class MLFeatureEngineeringService {
       );
     }
 
-    // Filter strictly to half-open window (T_start, T_end]
+    // Filter strictly to half-open window (T_start, T_end] and exact hourly boundary timestamps
+    const ONE_HOUR_MS = 60 * 60 * 1000;
     const windowRecords = weatherRecords.filter((r) => {
       const t = new Date(r.observedAt).getTime();
-      return t > tStart.getTime() && t <= tEndTruncated.getTime();
+      return t > tStart.getTime() && t <= tEndTruncated.getTime() && t % ONE_HOUR_MS === 0;
     });
 
     if (windowRecords.length !== 720) {

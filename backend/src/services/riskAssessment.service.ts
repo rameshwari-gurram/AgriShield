@@ -32,7 +32,7 @@ import {
   RiskRuleEvaluationInput,
   PortfolioRiskSummaryDTO,
 } from '../types/risk.types.js';
-import { FarmStatus } from '@prisma/client';
+import { FarmStatus, Prisma } from '@prisma/client';
 import { IWeatherRepository } from '../types/weather.types.js';
 import { IFarmRepository } from '../types/farm.types.js';
 import { riskRepository } from '../repositories/risk.repository.js';
@@ -79,7 +79,8 @@ export class RiskAssessmentService {
    */
   async assessFarmRisk(
     farmId: string,
-    referenceTime?: Date | string
+    referenceTime?: Date | string,
+    options?: { persist?: boolean }
   ): Promise<RiskAssessmentResponseDTO> {
     // -------------------------------------------------------------------------
     // STEP 1 — Validate Farm Existence
@@ -183,8 +184,41 @@ export class RiskAssessmentService {
     });
 
     // -------------------------------------------------------------------------
-    // STEP 10 — Persist Atomically Inside a Single Prisma Transaction
+    // STEP 10 — Persist Atomically (or construct simulated in-memory DTO for dry-run)
     // -------------------------------------------------------------------------
+    if (options?.persist === false) {
+      const simulatedAssessment: RiskAssessmentWithEvents = {
+        id: `simulated-assessment-${farmId}-${targetAssessmentTime.getTime()}`,
+        farmId,
+        assessedAt: targetAssessmentTime,
+        overallRisk,
+        assessmentVersion: DEFAULT_ASSESSMENT_VERSION,
+        ruleCount,
+        triggeredRuleCount,
+        weatherRecordCount,
+        createdAt: new Date(),
+        riskEvents: eventInputs.map((ei, idx) => ({
+          id: `simulated-event-${farmId}-${idx}`,
+          assessmentId: `simulated-assessment-${farmId}-${targetAssessmentTime.getTime()}`,
+          riskRuleId: ei.riskRuleId,
+          observedValue:
+            ei.observedValue !== null && ei.observedValue !== undefined
+              ? new Prisma.Decimal(ei.observedValue.toString())
+              : null,
+          thresholdValue: new Prisma.Decimal(ei.thresholdValue.toString()),
+          unit: ei.unit,
+          severity: ei.severity,
+          triggered: ei.triggered,
+          explanation: ei.explanation,
+          observedAt: ei.observedAt,
+          createdAt: new Date(),
+          riskRule: activeRules.find((r) => r.id === ei.riskRuleId),
+        })),
+      };
+
+      return this.formatAssessment(simulatedAssessment);
+    }
+
     const assessment = await this.riskRepo.createAssessmentWithEvents(
       {
         farmId,

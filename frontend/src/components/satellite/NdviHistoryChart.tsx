@@ -24,7 +24,7 @@ import {
   Legend,
   ReferenceLine,
 } from 'recharts';
-import { Satellite, AlertCircle, Calendar } from 'lucide-react';
+import { Satellite, AlertCircle, Calendar, RefreshCw } from 'lucide-react';
 import { NdviObservationDTO } from '../../types';
 import { LoadingSpinner } from '../LoadingSpinner';
 import { classifyVegetationHealth } from './NdviSummaryCard';
@@ -46,7 +46,8 @@ export interface NdviChartPoint {
  * Transforms historical observation DTOs into chart data points without mutating the source array.
  */
 export function formatNdviChartData(observations: NdviObservationDTO[]): NdviChartPoint[] {
-  return observations.map((obs) => {
+  const safeList = Array.isArray(observations) ? observations : [];
+  return safeList.map((obs) => {
     const d = new Date(obs.observedAt);
     const validDate = !isNaN(d.getTime());
 
@@ -169,12 +170,14 @@ export interface NdviHistoryChartProps {
   observations: NdviObservationDTO[];
   loading?: boolean;
   error?: string | null;
+  onRetry?: () => void;
 }
 
 export const NdviHistoryChart: React.FC<NdviHistoryChartProps> = ({
   observations,
   loading = false,
   error = null,
+  onRetry,
 }) => {
   if (loading) {
     return (
@@ -191,7 +194,7 @@ export const NdviHistoryChart: React.FC<NdviHistoryChartProps> = ({
   if (error) {
     return (
       <div
-        className="h-72 w-full flex flex-col items-center justify-center p-6 bg-rose-50/50 rounded-2xl border border-rose-200/80 text-center space-y-2"
+        className="h-72 w-full flex flex-col items-center justify-center p-6 bg-rose-50/50 rounded-2xl border border-rose-200/80 text-center space-y-3"
         data-testid="ndvi-chart-error"
       >
         <AlertCircle className="w-6 h-6 text-rose-600" aria-hidden="true" />
@@ -199,6 +202,17 @@ export const NdviHistoryChart: React.FC<NdviHistoryChartProps> = ({
         <p className="text-xs text-rose-700 max-w-md" data-testid="ndvi-chart-error-message">
           {error}
         </p>
+        {onRetry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-white border border-rose-200 hover:bg-rose-100/50 text-rose-800 font-semibold text-xs transition shadow-xs active:scale-95"
+            data-testid="retry-history-ndvi-button"
+          >
+            <RefreshCw className="w-3.5 h-3.5 text-rose-600" />
+            <span>Retry Trend Data</span>
+          </button>
+        )}
       </div>
     );
   }
@@ -212,7 +226,7 @@ export const NdviHistoryChart: React.FC<NdviHistoryChartProps> = ({
         <Satellite className="w-8 h-8 text-slate-400" aria-hidden="true" />
         <p className="text-sm font-semibold text-slate-700">No historical NDVI observations available</p>
         <p className="text-xs text-slate-500 max-w-md">
-          No satellite observations are stored in PostgreSQL for this farm parcel yet. Use the synchronization controls above to fetch Sentinel-2 imagery.
+          No satellite observations available yet. Sync satellite data to get started.
         </p>
       </div>
     );
@@ -237,7 +251,7 @@ export const NdviHistoryChart: React.FC<NdviHistoryChartProps> = ({
 
       {/* Recharts Responsive Container */}
       <div className="h-72 w-full pt-2" data-testid="ndvi-chart-container">
-        <ResponsiveContainer width="100%" height="100%">
+        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
           <LineChart data={chartData} margin={{ top: 10, right: 20, left: -10, bottom: 25 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
             <XAxis

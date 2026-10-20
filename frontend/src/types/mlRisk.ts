@@ -228,3 +228,41 @@ export const FEATURE_METADATA_MAP: Record<CanonicalFeatureName, FeatureMetadata>
     description: '1 if at least 2 distinct NDVI observations were available for slope calculation; 0 if single/missing.',
   },
 };
+
+/**
+ * 7-Day Ahead Sentinel-2 NDVI Forecast Types
+ */
+export interface NdviFeatureAttribution {
+  feature_name: string;
+  feature_value?: number | null;
+  shap_value: number;
+  direction: string;
+  contribution_magnitude: number;
+}
+
+export interface NdviExplanation {
+  base_value: number;
+  reconstructed_prediction: number;
+  additivity_error: number;
+  attributions: NdviFeatureAttribution[];
+}
+
+export interface NdviForecastModelInfo {
+  model_name: string;
+  model_version: string;
+  feature_contract_version: string;
+  feature_count: number;
+}
+
+export interface NdviForecastResponse {
+  predicted_ndvi: number;
+  current_ndvi: number;
+  predicted_delta: number;
+  forecast_horizon: string;
+  target_variable: string;
+  baseline_persistence_ndvi: number;
+  explanation: NdviExplanation;
+  model: NdviForecastModelInfo;
+  disclaimer: string;
+}
+

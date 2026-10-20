@@ -21,6 +21,14 @@ import {
   mlPredictionResponseSchema,
   MLPredictionResponse,
 } from '../validators/mlPredictionResponse.validator.js';
+import {
+  NdviFeaturePayload,
+  NdviPredictionResponse,
+} from '../types/ndviPrediction.types.js';
+import {
+  ndviFeaturePayloadSchema,
+  ndviPredictionResponseSchema,
+} from '../validators/ndviPrediction.validator.js';
 
 export interface MLHttpClientConfig {
   baseUrl?: string;
@@ -113,6 +121,60 @@ export class MLHttpClient {
 
       throw AppError.badGateway(
         `ML risk prediction service request failed: ${error instanceof Error ? error.message : 'Unknown communication error'}`
+      );
+    }
+  }
+
+  /**
+   * Sends a validated 29-feature NDVI forecast payload to Python ML service POST /predict/ndvi.
+   *
+   * @param features Validated 29-feature vector
+   * @returns Validated, typed NdviPredictionResponse DTO
+   */
+  public async predictNdvi(features: NdviFeaturePayload): Promise<NdviPredictionResponse> {
+    // 1. Validate outgoing 29-feature payload
+    const validationResult = ndviFeaturePayloadSchema.safeParse(features);
+    if (!validationResult.success) {
+      throw AppError.badRequest(
+        `NDVI feature payload rejected before transmission: ${validationResult.error.errors
+          .map((e) => `${e.path.join('.')}: ${e.message}`)
+          .join(', ')}`
+      );
+    }
+    const cleanPayload = validationResult.data;
+
+    // 2. Dispatch HTTP POST /predict/ndvi
+    try {
+      const response = await this.client.post<unknown>('/predict/ndvi', cleanPayload, {
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+        },
+        timeout: this.timeoutMs,
+      });
+
+      // 3. Validate response
+      const responseValidation = ndviPredictionResponseSchema.safeParse(response.data);
+      if (!responseValidation.success) {
+        throw AppError.badGateway(
+          `NDVI prediction service returned an invalid response schema: ${responseValidation.error.errors
+            .map((e) => `${e.path.join('.')}: ${e.message}`)
+            .join(', ')}`
+        );
+      }
+
+      return responseValidation.data;
+    } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+
+      if (axios.isAxiosError(error)) {
+        this.handleHttpError(error);
+      }
+
+      throw AppError.badGateway(
+        `NDVI prediction service request failed: ${error instanceof Error ? error.message : 'Unknown communication error'}`
       );
     }
   }

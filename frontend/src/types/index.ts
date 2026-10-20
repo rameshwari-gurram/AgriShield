@@ -6,6 +6,8 @@ export * from './weather';
 export * from './risk';
 export * from './satellite';
 export * from './mlRisk';
+export * from './policyClaim';
+export * from './auth';
 
 export type ServiceStatusType = 'healthy' | 'degraded' | 'unhealthy' | 'loading' | 'offline';
 

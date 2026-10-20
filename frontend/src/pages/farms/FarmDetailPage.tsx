@@ -15,6 +15,7 @@ import {
   Clock,
   Tag,
   ShieldAlert,
+  ShieldCheck,
 } from 'lucide-react';
 import { farmService } from '../../services/farmService';
 import { farmBoundaryService } from '../../services/farmBoundaryService';
@@ -25,10 +26,13 @@ import { FarmWeatherSection } from '../../components/weather/FarmWeatherSection'
 import { FarmSatelliteSection } from '../../components/satellite/FarmSatelliteSection';
 import { FarmRiskSection } from '../../components/risk/FarmRiskSection';
 import { FarmMlRiskSection } from '../../components/mlRisk/FarmMlRiskSection';
+import { FarmPolicyClaimsSection } from '../../components/policy/FarmPolicyClaimsSection';
+import { useAuth } from '../../context/AuthContext';
 
 export const FarmDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const auth = useAuth();
 
   const [farm, setFarm] = useState<Farm | null>(null);
   const [boundary, setBoundary] = useState<FarmBoundary | null>(null);
@@ -356,6 +360,29 @@ export const FarmDetailPage: React.FC = () => {
             ) : (
               <div className="text-xs text-slate-500 font-mono">Farmer UUID: {farm.farmerId}</div>
             )}
+
+            {auth.isAuthenticated && (
+              <div className="pt-2 border-t border-emerald-200/60 flex items-center justify-between text-xs">
+                {auth.isOwnerOfFarm(farm.farmerId) ? (
+                  <span className="inline-flex items-center gap-1 text-emerald-800 font-semibold">
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Active Session (Parcel Owner)</span>
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 text-amber-800 font-medium">
+                    <ShieldAlert className="w-3.5 h-3.5 text-amber-600" />
+                    <span>Active Session: {auth.activeProducer?.fullName}</span>
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={auth.logout}
+                  className="text-slate-500 hover:text-slate-800 underline text-[11px]"
+                >
+                  Sign Out
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Location Card */}
@@ -481,6 +508,9 @@ export const FarmDetailPage: React.FC = () => {
 
       {/* Advisory Machine Learning Risk Assessment Section (Module 8) */}
       <FarmMlRiskSection farmId={farm.id} />
+
+      {/* Parametric Insurance & Automated Claims Section (Module 9) */}
+      <FarmPolicyClaimsSection farmId={farm.id} />
 
       {/* Edit Modal */}
       {isEditing && (

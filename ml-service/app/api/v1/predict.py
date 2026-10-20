@@ -4,8 +4,14 @@ FastAPI Router for ML Risk Prediction & SHAP Explainability API
 """
 
 from fastapi import APIRouter, HTTPException, status
-from app.schemas.prediction import PredictionRequest, PredictionResponse
+from app.schemas.prediction import (
+    NdviPredictionRequest,
+    NdviPredictionResponse,
+    PredictionRequest,
+    PredictionResponse,
+)
 from app.services.inference_service import inference_service
+from app.services.ndvi_inference_service import ndvi_inference_service
 from app.utils.logger import logger
 
 router = APIRouter(tags=["Inference"])
@@ -63,3 +69,58 @@ async def predict_risk(request: PredictionRequest) -> PredictionResponse:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal ML inference service failure.",
         )
+
+
+@router.post(
+    "/predict/ndvi",
+    response_model=NdviPredictionResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Forecast Next-Week Sentinel-2 NDVI & Explain Attribution",
+    description=(
+        "Executes 7-day ahead NDVI vegetation forecast using HistGradientBoostingRegressor "
+        "trained on the verified IEEE AgriVision Maharashtra dataset (2017-2025). "
+        "Returns forecasted NDVI, change from current NDVI, persistence baseline, "
+        "and full 29-feature SHAP TreeExplainer attributions. "
+        "Preserves native missing value routing for optical remote sensing lag indicators."
+    ),
+    responses={
+        200: {
+            "description": "Successful NDVI forecast and SHAP explanation",
+            "model": NdviPredictionResponse,
+        },
+        422: {
+            "description": "Validation error: missing or invalid feature value",
+        },
+        503: {
+            "description": "Service unavailable: NDVI model artifacts not initialized or missing",
+        },
+        500: {
+            "description": "Internal server error: unexpected failure during model inference",
+        },
+    },
+)
+async def predict_ndvi_forecast(request: NdviPredictionRequest) -> NdviPredictionResponse:
+    """Endpoint for next-week Sentinel-2 NDVI forecast and SHAP explanation."""
+    if not ndvi_inference_service.is_ready():
+        logger.error("NDVI forecast requested but NdviInferenceService is not ready/initialized.")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="NDVI forecast model artifacts unavailable or service not initialized.",
+        )
+
+    try:
+        response = ndvi_inference_service.predict_and_explain(request)
+        return response
+    except ValueError as ve:
+        logger.warning(f"Feature validation failure during NDVI inference: {ve}")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(ve),
+        )
+    except Exception as e:
+        logger.error(f"Unexpected internal NDVI inference error: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal ML NDVI forecast failure.",
+        )
+

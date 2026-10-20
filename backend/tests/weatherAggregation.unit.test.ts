@@ -467,6 +467,112 @@ function runAggregationUnitTests() {
     assert(res.threeHourWindowEnd === null, '31.8 Single record marks threeHourWindowEnd = null');
   }
 
+  // ===========================================================================
+  // Sub-Hourly Current Observation & Hourly Window Anchoring (Tests 32 - 33)
+  // ===========================================================================
+  // 32. Sub-hourly current observation with 24 consecutive hourly records
+  {
+    // 24 consecutive hourly records ending at 19:00:00Z (indices 0..23; last 3 hours indices 21, 22, 23 have peak rain)
+    const hourlyRecords = createConsecutiveHours('2026-10-14T20:00:00Z', 24, (i) => ({
+      rainfallMm: i >= 21 ? 5.0 : 2.0,
+      temperatureC: 26.0,
+      windSpeedKmh: 12.0,
+      windGustKmh: 18.0,
+    }));
+    // Plus 1 newer sub-hourly current observation at 19:30:00Z
+    const currentRecord = createHourlyRecord('2026-10-15T19:30:00Z', {
+      rainfallMm: 15.0, // Should NOT be added to 24h hourly rainfall
+      temperatureC: 34.5, // Should be reflected in maximumTemperatureC
+      windSpeedKmh: 20.0,
+      windGustKmh: 30.0,
+    });
+    const records = [...hourlyRecords, currentRecord];
+    const res = weatherAggregationService.aggregateRecords(records, dummyFarmId);
+
+    assert(res.recordCount === 25, `32.1 Total record count includes sub-hourly record (got ${res.recordCount}, expected 25)`);
+    assert(
+      res.observationStart?.toISOString() === new Date('2026-10-14T20:00:00Z').toISOString(),
+      '32.2 observationStart matches earliest hourly record'
+    );
+    assert(
+      res.observationEnd?.toISOString() === new Date('2026-10-15T19:30:00Z').toISOString(),
+      '32.3 observationEnd matches sub-hourly current record'
+    );
+    assert(res.complete24hWindow === true, '32.4 complete24hWindow = true anchored to latest hourly boundary');
+    assert(res.totalRainfall24h === 57.0, `32.5 24h total rainfall strictly sums 24 hourly records (got ${res.totalRainfall24h}, expected 57.0)`);
+    assert(res.complete3hWindow === true, '32.6 complete3hWindow = true evaluated over hourly records');
+    assert(res.maximumRolling3hRainfall === 15.0, `32.7 Rolling 3h rainfall is 15.0 mm (got ${res.maximumRolling3hRainfall})`);
+    assert(
+      res.threeHourWindowEnd?.toISOString() === new Date('2026-10-15T19:00:00Z').toISOString(),
+      '32.8 threeHourWindowEnd points to hourly boundary (19:00:00Z)'
+    );
+    assert(res.maximumTemperatureC === 34.5, `32.9 Maximum temperature incorporates sub-hourly record (got ${res.maximumTemperatureC}, expected 34.5)`);
+  }
+
+  // 33. Sub-hourly current observation with incomplete hourly window (23 hours)
+  {
+    // Only 23 consecutive hourly records ending at 19:00:00Z (starts at 21:00)
+    const hourlyRecords = createConsecutiveHours('2026-10-14T21:00:00Z', 23, () => ({
+      rainfallMm: 2.0,
+      temperatureC: 25.0,
+    }));
+    const currentRecord = createHourlyRecord('2026-10-15T19:30:00Z', {
+      rainfallMm: 5.0,
+    });
+    const records = [...hourlyRecords, currentRecord];
+    const res = weatherAggregationService.aggregateRecords(records, dummyFarmId);
+
+    assert(res.recordCount === 24, `33.1 Record count is 24 (got ${res.recordCount})`);
+    assert(res.complete24hWindow === false, '33.2 complete24hWindow = false when hourly window has only 23 hours');
+    assert(res.complete3hWindow === true, '33.3 complete3hWindow = true still satisfied by consecutive hourly records');
+  }
+
+  // 34. Only sub-hourly records at :15 and :30
+  {
+    const records = [
+      createHourlyRecord('2026-10-15T19:15:00Z', {
+        rainfallMm: 8.0,
+        temperatureC: 25.0,
+      }),
+      createHourlyRecord('2026-10-15T19:30:00Z', {
+        rainfallMm: 12.0,
+        temperatureC: 26.0,
+      }),
+    ];
+    const res = weatherAggregationService.aggregateRecords(records, dummyFarmId);
+    assert(res.totalRainfall24h === 0, `34.1 totalRainfall24h is 0 for sub-hourly records (got ${res.totalRainfall24h})`);
+    assert(res.complete24hWindow === false, '34.2 complete24hWindow = false for sub-hourly records');
+    assert(res.complete3hWindow === false, '34.3 complete3hWindow = false for sub-hourly records');
+  }
+
+  // 35. Three non-hourly observations at 10:15, 11:15 and 12:15, each with 10 mm rainfall
+  {
+    const records = [
+      createHourlyRecord('2026-10-15T10:15:00Z', { rainfallMm: 10.0 }),
+      createHourlyRecord('2026-10-15T11:15:00Z', { rainfallMm: 10.0 }),
+      createHourlyRecord('2026-10-15T12:15:00Z', { rainfallMm: 10.0 }),
+    ];
+    const res = weatherAggregationService.aggregateRecords(records, dummyFarmId);
+    assert(res.complete3hWindow === false, '35.1 complete3hWindow = false for arbitrary non-hourly observations');
+    assert(res.maximumRolling3hRainfall === 0, `35.2 maximumRolling3hRainfall is 0 for non-hourly observations (got ${res.maximumRolling3hRainfall})`);
+    assert(res.threeHourWindowEnd === null, '35.3 threeHourWindowEnd is null for non-hourly observations');
+  }
+
+  // 36. Twenty-four non-hourly observations spaced one hour apart at :30
+  {
+    const start = new Date('2026-10-14T20:30:00Z').getTime();
+    const records: WeatherRecordInput[] = [];
+    for (let i = 0; i < 24; i++) {
+      records.push(
+        createHourlyRecord(new Date(start + i * 3600000).toISOString(), {
+          rainfallMm: 2.0,
+        })
+      );
+    }
+    const res = weatherAggregationService.aggregateRecords(records, dummyFarmId);
+    assert(res.complete24hWindow === false, '36.1 complete24hWindow = false for 24 non-hourly observations at :30');
+  }
+
   // ---------------------------------------------------------------------------
   // Summary
   // ---------------------------------------------------------------------------

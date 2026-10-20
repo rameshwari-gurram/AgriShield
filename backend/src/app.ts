@@ -17,7 +17,7 @@ export const createApp = (): Application => {
       origin: env.CORS_ORIGIN === '*' ? true : env.CORS_ORIGIN.split(','),
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'X-Correlation-ID'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'X-Correlation-ID', 'X-Requested-With'],
     })
   );
 

@@ -32,6 +32,25 @@ import { NdviSummaryCard } from './NdviSummaryCard';
 import { SatelliteSyncControls } from './SatelliteSyncControls';
 import { NdviHistoryChart } from './NdviHistoryChart';
 
+/**
+ * Stable empty array reference to prevent prop default re-instantiation and effect loops.
+ */
+const DEFAULT_EMPTY_HISTORICAL: NdviObservationDTO[] = [];
+
+/**
+ * Robust detection of HTTP 404 "not found" response across Axios, AppError, and custom envelope representations.
+ */
+export const isNotFoundError = (err: unknown): boolean => {
+  const anyErr = err as any;
+  return (
+    anyErr?.response?.status === 404 ||
+    anyErr?.status === 404 ||
+    anyErr?.statusCode === 404 ||
+    anyErr?.response?.data?.statusCode === 404 ||
+    anyErr?.response?.data?.status === 404
+  );
+};
+
 export interface FarmSatelliteSectionProps {
   farmId: string;
   hasBoundary: boolean;
@@ -48,7 +67,7 @@ export const FarmSatelliteSection: React.FC<FarmSatelliteSectionProps> = ({
   farmId,
   hasBoundary,
   initialLatest = null,
-  initialHistorical = [],
+  initialHistorical = DEFAULT_EMPTY_HISTORICAL,
   initialLoadingLatest = false,
   initialLoadingHistory = false,
   initialLatestError = null,
@@ -71,6 +90,10 @@ export const FarmSatelliteSection: React.FC<FarmSatelliteSectionProps> = ({
   // Concurrency & mounting safety
   const isMountedRef = useRef<boolean>(true);
   const isRefreshingRef = useRef<boolean>(false);
+  const inFlightLatestRef = useRef<boolean>(false);
+  const inFlightHistoryRef = useRef<boolean>(false);
+  const currentFarmIdRef = useRef<string>(farmId);
+  currentFarmIdRef.current = farmId;
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -81,7 +104,7 @@ export const FarmSatelliteSection: React.FC<FarmSatelliteSectionProps> = ({
 
   const parseErrorMessage = (err: unknown, fallback: string): string => {
     const anyErr = err as any;
-    const status = anyErr?.response?.status;
+    const status = anyErr?.response?.status || anyErr?.status || anyErr?.statusCode;
     const msg = anyErr?.response?.data?.message || anyErr?.message;
 
     if (status === 404) {
@@ -101,19 +124,29 @@ export const FarmSatelliteSection: React.FC<FarmSatelliteSectionProps> = ({
    * HTTP 404 is treated as a normal empty state ("no observation yet").
    */
   const fetchLatestNdvi = useCallback(async (): Promise<void> => {
+    if (!farmId || !hasBoundary) {
+      setLoadingLatest(false);
+      return;
+    }
+    if (inFlightLatestRef.current) return;
+    inFlightLatestRef.current = true;
+
     try {
       setLoadingLatest(true);
       setLatestError(null);
       const res = await satelliteService.getLatestNdvi(farmId);
-      if (isMountedRef.current) {
-        setLatestObservation(res.data);
+      if (isMountedRef.current && currentFarmIdRef.current === farmId) {
+        const obsData: NdviObservationDTO | null =
+          (res as any)?.data !== undefined ? (res as any).data : res;
+        setLatestObservation(obsData);
+        setLatestError(null);
       }
     } catch (err: unknown) {
-      const anyErr = err as any;
-      if (isMountedRef.current) {
-        if (anyErr?.response?.status === 404) {
+      if (isMountedRef.current && currentFarmIdRef.current === farmId) {
+        if (isNotFoundError(err)) {
           // Normal state: no observations have been synced yet
           setLatestObservation(null);
+          setLatestError(null);
         } else {
           setLatestError(
             parseErrorMessage(err, 'Failed to retrieve latest satellite observation.')
@@ -121,29 +154,44 @@ export const FarmSatelliteSection: React.FC<FarmSatelliteSectionProps> = ({
         }
       }
     } finally {
-      if (isMountedRef.current) {
+      inFlightLatestRef.current = false;
+      if (isMountedRef.current && currentFarmIdRef.current === farmId) {
         setLoadingLatest(false);
       }
     }
-  }, [farmId]);
+  }, [farmId, hasBoundary]);
 
   /**
    * Fetch historical NDVI observations from PostgreSQL.
    * HTTP 404 is treated as an empty dataset.
    */
   const fetchHistoricalNdvi = useCallback(async (): Promise<void> => {
+    if (!farmId || !hasBoundary) {
+      setLoadingHistory(false);
+      return;
+    }
+    if (inFlightHistoryRef.current) return;
+    inFlightHistoryRef.current = true;
+
     try {
       setLoadingHistory(true);
       setHistoryError(null);
       const res = await satelliteService.getHistoricalNdvi(farmId);
-      if (isMountedRef.current) {
-        setHistoricalObservations(res.data || []);
+      if (isMountedRef.current && currentFarmIdRef.current === farmId) {
+        let historyList: NdviObservationDTO[] = [];
+        if (Array.isArray(res)) {
+          historyList = res;
+        } else if (Array.isArray((res as any)?.data)) {
+          historyList = (res as any).data;
+        }
+        setHistoricalObservations(historyList);
+        setHistoryError(null);
       }
     } catch (err: unknown) {
-      const anyErr = err as any;
-      if (isMountedRef.current) {
-        if (anyErr?.response?.status === 404) {
+      if (isMountedRef.current && currentFarmIdRef.current === farmId) {
+        if (isNotFoundError(err)) {
           setHistoricalObservations([]);
+          setHistoryError(null);
         } else {
           setHistoryError(
             parseErrorMessage(err, 'Failed to retrieve historical satellite observations.')
@@ -151,14 +199,17 @@ export const FarmSatelliteSection: React.FC<FarmSatelliteSectionProps> = ({
         }
       }
     } finally {
-      if (isMountedRef.current) {
+      inFlightHistoryRef.current = false;
+      if (isMountedRef.current && currentFarmIdRef.current === farmId) {
         setLoadingHistory(false);
       }
     }
-  }, [farmId]);
+  }, [farmId, hasBoundary]);
 
   /**
    * Parallel initial data fetch on mount or farmId change.
+   * Strict Invariant: Depend ONLY on [farmId, hasBoundary].
+   * Does NOT depend on loading/data state or recreated callbacks, preventing fetch loops.
    */
   useEffect(() => {
     // If initial values were passed for testing, skip auto-fetch
@@ -174,27 +225,21 @@ export const FarmSatelliteSection: React.FC<FarmSatelliteSectionProps> = ({
     }
 
     if (!hasBoundary) {
-      // Avoid unnecessary queries when boundary is missing
+      // Avoid unnecessary queries when boundary is missing, and clear loading states
       setLatestObservation(null);
       setHistoricalObservations([]);
+      setLatestError(null);
+      setHistoryError(null);
+      setLoadingLatest(false);
+      setLoadingHistory(false);
       return;
     }
 
     // Parallel fetch for latest and history
     fetchLatestNdvi();
     fetchHistoricalNdvi();
-  }, [
-    farmId,
-    hasBoundary,
-    fetchLatestNdvi,
-    fetchHistoricalNdvi,
-    initialLatest,
-    initialHistorical,
-    initialLoadingLatest,
-    initialLoadingHistory,
-    initialLatestError,
-    initialHistoryError,
-  ]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [farmId, hasBoundary]);
 
   /**
    * Refreshes both latest and historical data after a successful manual sync.
@@ -292,7 +337,7 @@ export const FarmSatelliteSection: React.FC<FarmSatelliteSectionProps> = ({
 
         {loadingLatest ? (
           <div
-            className="p-8 rounded-2xl bg-slate-50/70 border border-slate-200/80 flex flex-col items-center justify-center space-y-2"
+            className="p-8 rounded-2xl bg-slate-50/70 border border-slate-200/80 flex flex-col items-center justify-center space-y-2 min-h-[160px]"
             data-testid="latest-ndvi-loading"
           >
             <LoadingSpinner size="md" />
@@ -302,15 +347,27 @@ export const FarmSatelliteSection: React.FC<FarmSatelliteSectionProps> = ({
           </div>
         ) : latestError ? (
           <div
-            className="p-5 rounded-2xl bg-rose-50 border border-rose-200 text-xs text-rose-800 flex items-center gap-2 shadow-xs"
+            className="p-6 rounded-2xl bg-rose-50 border border-rose-200 text-xs text-rose-800 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-xs min-h-[160px]"
             data-testid="latest-ndvi-error"
           >
-            <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" aria-hidden="true" />
-            <span>{latestError}</span>
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" aria-hidden="true" />
+              <span>{latestError}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => fetchLatestNdvi()}
+              disabled={loadingLatest}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-rose-200 hover:bg-rose-100/50 text-rose-800 font-semibold text-xs transition shadow-xs flex-shrink-0 active:scale-95"
+              data-testid="retry-latest-ndvi-button"
+            >
+              <RefreshCw className="w-3.5 h-3.5 text-rose-600" />
+              <span>Retry</span>
+            </button>
           </div>
         ) : !latestObservation ? (
           <div
-            className="p-8 rounded-2xl bg-slate-50/70 border border-dashed border-slate-300 flex flex-col items-center text-center space-y-3"
+            className="p-8 rounded-2xl bg-slate-50/70 border border-dashed border-slate-300 flex flex-col items-center justify-center text-center space-y-3 min-h-[160px]"
             data-testid="latest-ndvi-empty"
           >
             <div className="w-12 h-12 rounded-full bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600">
@@ -321,7 +378,7 @@ export const FarmSatelliteSection: React.FC<FarmSatelliteSectionProps> = ({
                 No Satellite Observation Synchronized Yet
               </h4>
               <p className="text-xs text-slate-500 max-w-md">
-                NDVI observations have not been synchronized for this farm parcel yet. Use the synchronization controls above to query Copernicus Sentinel-2.
+                No satellite observations available yet. Sync satellite data to get started.
               </p>
             </div>
           </div>
@@ -343,6 +400,7 @@ export const FarmSatelliteSection: React.FC<FarmSatelliteSectionProps> = ({
           observations={historicalObservations}
           loading={loadingHistory}
           error={historyError}
+          onRetry={fetchHistoricalNdvi}
         />
       </div>
     </div>

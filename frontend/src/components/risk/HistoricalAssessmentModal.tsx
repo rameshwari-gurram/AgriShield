@@ -9,7 +9,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { X, RefreshCw, AlertCircle, History } from 'lucide-react';
 import { riskAssessmentService } from '../../services/riskAssessmentService';
-import { RiskAssessment } from '../../types';
+import { RiskAssessment, Claim } from '../../types';
 import { LoadingSpinner } from '../LoadingSpinner';
 import { RiskAssessmentSummaryCard } from './RiskAssessmentSummaryCard';
 import { InsufficientDataWarning } from './InsufficientDataWarning';
@@ -17,6 +17,10 @@ import { RiskEventList } from './RiskEventList';
 
 export interface HistoricalAssessmentModalProps {
   assessmentId: string | null;
+  farmId?: string;
+  farmerId?: string;
+  claims?: Claim[];
+  onClaimEvaluated?: (claim: Claim) => void;
   isOpen: boolean;
   onClose: () => void;
   onViewProvenance?: (assessment: RiskAssessment) => void;
@@ -28,6 +32,10 @@ export interface HistoricalAssessmentModalProps {
 
 export const HistoricalAssessmentModal: React.FC<HistoricalAssessmentModalProps> = ({
   assessmentId,
+  farmId,
+  farmerId,
+  claims,
+  onClaimEvaluated,
   isOpen,
   onClose,
   onViewProvenance,
@@ -162,7 +170,13 @@ export const HistoricalAssessmentModal: React.FC<HistoricalAssessmentModalProps>
               hasInsufficientDataCoverage={assessment.hasInsufficientDataCoverage}
             />
             <RiskAssessmentSummaryCard assessment={assessment} onViewProvenance={onViewProvenance} />
-            <RiskEventList events={assessment.events || []} />
+            <RiskEventList
+              events={assessment.events || []}
+              farmId={assessment.farmId || farmId}
+              farmerId={farmerId}
+              claims={claims}
+              onClaimEvaluated={onClaimEvaluated}
+            />
           </div>
         ) : null}
       </div>

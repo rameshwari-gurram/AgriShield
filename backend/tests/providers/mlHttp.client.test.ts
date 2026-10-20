@@ -22,6 +22,8 @@
 import { MLHttpClient } from '../../src/providers/mlHttp.client.js';
 import { MLFeatureContractV1_1 } from '../../src/types/mlFeatureContract.types.js';
 import { CANONICAL_FEATURE_NAMES } from '../../src/validators/mlFeatureContract.validator.js';
+import { CANONICAL_NDVI_FEATURE_NAMES } from '../../src/validators/ndviPrediction.validator.js';
+import { NdviFeaturePayload, NdviPredictionResponse } from '../../src/types/ndviPrediction.types.js';
 import { AppError } from '../../src/utils/apiError.js';
 import { AxiosInstance, AxiosResponse, InternalAxiosRequestConfig } from 'axios';
 import * as fs from 'fs';
@@ -554,8 +556,94 @@ async function runMLHttpClientUnitTests() {
     assert(!hasPayoutOrClaimImport, '15.3 Zero import or reference to claims/payouts in transport client');
   }
 
+  // ---------------------------------------------------------------------------
+  // TEST 16: predictNdvi dispatch, schema validation, and error handling
+  // ---------------------------------------------------------------------------
+  console.log('\n--- TEST 16: predictNdvi Method Verification ---');
+  {
+    mockAxios.callCount = 0;
+    mockAxios.mockError = null;
+    mockAxios.mockResponse = {
+      predicted_ndvi: 0.435,
+      current_ndvi: 0.42,
+      predicted_delta: 0.015,
+      forecast_horizon: '7_days',
+      target_variable: 'NDVI_next_week',
+      baseline_persistence_ndvi: 0.42,
+      explanation: {
+        base_value: 0.3505,
+        reconstructed_prediction: 0.435,
+        additivity_error: 0.0000001,
+        attributions: CANONICAL_NDVI_FEATURE_NAMES.map((name) => ({
+          feature_name: name,
+          feature_value: 0.42,
+          shap_value: 0.005,
+          direction: 'increases vegetation health forecast (+)',
+          contribution_magnitude: 0.005,
+        })),
+      },
+      model: {
+        model_name: 'AgriVision-NDVI-Forecast-HGB',
+        model_version: '1.0.0',
+        feature_contract_version: 'v1.0-ndvi-29',
+        feature_count: 29,
+      },
+      disclaimer: 'Advisory NDVI forecast disclaimer',
+    };
+
+    const validNdviPayload: NdviFeaturePayload = {
+      NDVI: 0.42,
+      Rainfall_Current: 12.5,
+      Temperature_Current: 28.4,
+      NDVI_lag_1: 0.41,
+      NDVI_lag_2: 0.39,
+      NDVI_lag_3: 0.38,
+      NDVI_lag_4: 0.36,
+      NDVI_lag_8: 0.35,
+      NDVI_change_1w: 0.01,
+      NDVI_change_2w: 0.03,
+      NDVI_change_4w: 0.06,
+      Rainfall_lag_1: 8.0,
+      Rainfall_lag_2: 0.0,
+      Rainfall_lag_4: 15.0,
+      Rainfall_rolling_2w: 20.5,
+      Rainfall_rolling_4w: 45.0,
+      Rainfall_rolling_8w: 98.0,
+      Temperature_lag_1: 29.0,
+      Temperature_lag_2: 29.5,
+      Temperature_lag_4: 30.1,
+      Temperature_rolling_2w: 28.8,
+      Temperature_rolling_4w: 29.2,
+      Temperature_rolling_8w: 29.8,
+      Week_Sin: 0.5,
+      Week_Cos: 0.866,
+      Month_Sin: 0.5,
+      Month_Cos: 0.866,
+      Latitude: 19.75,
+      Longitude: 75.71,
+    };
+
+    const res = await client.predictNdvi(validNdviPayload);
+
+    assert(mockAxios.lastMethod === 'POST', '16.1 HTTP method is strictly POST');
+    assert(mockAxios.lastUrl === '/predict/ndvi', '16.2 Endpoint path is strictly /predict/ndvi');
+    assert(res.predicted_ndvi === 0.435, '16.3 predicted_ndvi parsed correctly');
+    assert(res.explanation.attributions.length === 29, '16.4 exactly 29 feature attributions returned');
+    assert(res.target_variable === 'NDVI_next_week', '16.5 target_variable is NDVI_next_week');
+
+    // Reject extra forbidden fields
+    const invalidNdviPayload = { ...validNdviPayload, extra_field: 123 } as any;
+    let caughtExtra = false;
+    try {
+      await client.predictNdvi(invalidNdviPayload);
+    } catch (err: any) {
+      caughtExtra = err instanceof AppError && err.statusCode === 400;
+    }
+    assert(caughtExtra, '16.6 Extra injected field rejected before transmission (HTTP 400)');
+  }
+
   console.log('\n================================================================================');
-  console.log(`TEST SUMMARY: ${passed} passed, ${failed} failed across all 15 test checkpoints`);
+  console.log(`TEST SUMMARY: ${passed} passed, ${failed} failed across all 16 test checkpoints`);
   console.log('================================================================================');
 
   if (failed > 0) {

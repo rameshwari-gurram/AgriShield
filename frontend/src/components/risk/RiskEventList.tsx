@@ -8,14 +8,24 @@
 
 import React from 'react';
 import { AlertTriangle, ShieldAlert, CheckCircle2, HelpCircle } from 'lucide-react';
-import { RiskEvent } from '../../types';
+import { RiskEvent, Claim } from '../../types';
 import { RiskEventCard } from './RiskEventCard';
 
 export interface RiskEventListProps {
   events: RiskEvent[];
+  farmId?: string;
+  farmerId?: string;
+  claims?: Claim[];
+  onClaimEvaluated?: (claim: Claim) => void;
 }
 
-export const RiskEventList: React.FC<RiskEventListProps> = ({ events }) => {
+export const RiskEventList: React.FC<RiskEventListProps> = ({
+  events,
+  farmId,
+  farmerId,
+  claims,
+  onClaimEvaluated,
+}) => {
   if (!events || events.length === 0) {
     return (
       <div className="p-8 text-center rounded-2xl bg-slate-50 border border-slate-200/80 space-y-2">
@@ -74,9 +84,19 @@ export const RiskEventList: React.FC<RiskEventListProps> = ({ events }) => {
 
       {/* List of RiskEventCards */}
       <div className="space-y-3">
-        {events.map((event) => (
-          <RiskEventCard key={event.id || event.ruleCode} event={event} />
-        ))}
+        {events.map((event) => {
+          const matchingClaim = claims?.find((c) => c.riskEventId === event.id);
+          return (
+            <RiskEventCard
+              key={event.id || event.ruleCode}
+              event={event}
+              farmId={farmId}
+              farmerId={farmerId}
+              existingClaim={matchingClaim}
+              onClaimEvaluated={onClaimEvaluated}
+            />
+          );
+        })}
       </div>
     </div>
   );

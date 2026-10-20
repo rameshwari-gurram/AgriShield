@@ -20,6 +20,8 @@ import {
   ServerCrash,
   TableProperties,
   BarChart3,
+  ShieldCheck,
+  Sparkles,
 } from 'lucide-react';
 import { mlRiskService, parseMlRiskErrorMessage, ParsedMlRiskError } from '../../services/mlRiskService';
 import {
@@ -27,16 +29,24 @@ import {
   CANONICAL_FEATURE_NAMES,
   FEATURE_METADATA_MAP,
   CanonicalFeatureName,
+  NdviForecastResponse,
 } from '../../types';
 import { MlRiskScoreCard } from './MlRiskScoreCard';
 import { ShapExplanationChart } from './ShapExplanationChart';
+import { NdviForecastCard } from './NdviForecastCard';
 import { LoadingSpinner } from '../LoadingSpinner';
+import { useAuth } from '../../context/AuthContext';
+import { ProducerAuthModal } from '../auth/ProducerAuthModal';
 
 export interface FarmMlRiskSectionProps {
   farmId: string;
   initialPrediction?: MlRiskPredictionDTO | null;
   initialLoading?: boolean;
   initialError?: string | null;
+  token?: string;
+  onOpenAuthModal?: () => void;
+  initialTab?: 'explanation' | 'features' | 'forecast';
+  initialNdviForecast?: NdviForecastResponse | null;
 }
 
 export const FarmMlRiskSection: React.FC<FarmMlRiskSectionProps> = ({
@@ -44,7 +54,15 @@ export const FarmMlRiskSection: React.FC<FarmMlRiskSectionProps> = ({
   initialPrediction,
   initialLoading,
   initialError,
+  token,
+  onOpenAuthModal,
+  initialTab,
+  initialNdviForecast,
 }) => {
+  const auth = useAuth();
+  const effectiveToken = token !== undefined ? token : auth.producerToken;
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+
   const [prediction, setPrediction] = useState<MlRiskPredictionDTO | null>(
     initialPrediction !== undefined ? initialPrediction : null
   );
@@ -55,7 +73,30 @@ export const FarmMlRiskSection: React.FC<FarmMlRiskSectionProps> = ({
   const [error, setError] = useState<ParsedMlRiskError | null>(
     initialError ? parseMlRiskErrorMessage(initialError) : null
   );
-  const [activeTab, setActiveTab] = useState<'explanation' | 'features'>('explanation');
+  const [activeTab, setActiveTab] = useState<'explanation' | 'features' | 'forecast'>(
+    initialTab || 'explanation'
+  );
+  const [ndviForecast, setNdviForecast] = useState<NdviForecastResponse | null>(
+    initialNdviForecast !== undefined ? initialNdviForecast : null
+  );
+  const [ndviLoading, setNdviLoading] = useState<boolean>(false);
+  const [ndviError, setNdviError] = useState<ParsedMlRiskError | null>(null);
+
+  const fetchNdviForecast = useCallback(async () => {
+    try {
+      setNdviLoading(true);
+      setNdviError(null);
+      const res = await mlRiskService.getFarmNdviForecast(farmId, {
+        token: effectiveToken || undefined,
+      });
+      setNdviForecast(res.data);
+    } catch (err: unknown) {
+      const parsed = parseMlRiskErrorMessage(err);
+      setNdviError(parsed);
+    } finally {
+      setNdviLoading(false);
+    }
+  }, [farmId, effectiveToken]);
 
   const fetchRisk = useCallback(
     async (forceRefresh: boolean = false) => {
@@ -67,7 +108,10 @@ export const FarmMlRiskSection: React.FC<FarmMlRiskSectionProps> = ({
         }
         setError(null);
 
-        const res = await mlRiskService.getFarmRisk(farmId, { forceRefresh });
+        const res = await mlRiskService.getFarmRisk(farmId, {
+          forceRefresh,
+          token: effectiveToken || undefined,
+        });
         setPrediction(res.data);
       } catch (err: unknown) {
         const parsed = parseMlRiskErrorMessage(err);
@@ -77,7 +121,7 @@ export const FarmMlRiskSection: React.FC<FarmMlRiskSectionProps> = ({
         setRefreshing(false);
       }
     },
-    [farmId]
+    [farmId, effectiveToken]
   );
 
   useEffect(() => {
@@ -85,7 +129,7 @@ export const FarmMlRiskSection: React.FC<FarmMlRiskSectionProps> = ({
     if (initialPrediction === undefined && !initialError) {
       fetchRisk(false);
     }
-  }, [fetchRisk, initialPrediction, initialError]);
+  }, [fetchRisk, initialPrediction, initialError, effectiveToken]);
 
   return (
     <div
@@ -110,60 +154,203 @@ export const FarmMlRiskSection: React.FC<FarmMlRiskSectionProps> = ({
 
         {/* Section Top Actions */}
         <div className="flex items-center gap-2 self-start sm:self-auto">
-          {prediction && (
+          {(prediction || activeTab === 'forecast') && (
             <div className="inline-flex rounded-xl border border-slate-200 p-0.5 bg-slate-50 text-xs font-semibold mr-1">
+              {prediction ? (
+                <>
+                  <button
+                    onClick={() => setActiveTab('explanation')}
+                    className={`px-3 py-1.5 rounded-lg transition ${
+                      activeTab === 'explanation'
+                        ? 'bg-white text-slate-900 shadow-2xs font-bold'
+                        : 'text-slate-500 hover:text-slate-900'
+                    }`}
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <BarChart3 className="w-3.5 h-3.5 text-indigo-600" aria-hidden="true" />
+                      <span>SHAP Attributions</span>
+                    </span>
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('features')}
+                    className={`px-3 py-1.5 rounded-lg transition ${
+                      activeTab === 'features'
+                        ? 'bg-white text-slate-900 shadow-2xs font-bold'
+                        : 'text-slate-500 hover:text-slate-900'
+                    }`}
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <TableProperties className="w-3.5 h-3.5 text-slate-500" aria-hidden="true" />
+                      <span>Feature Snapshot (17)</span>
+                    </span>
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={() => setActiveTab('explanation')}
+                  className={`px-3 py-1.5 rounded-lg transition ${
+                    activeTab === 'explanation'
+                      ? 'bg-white text-slate-900 shadow-2xs font-bold'
+                      : 'text-slate-500 hover:text-slate-900'
+                  }`}
+                >
+                  <span className="flex items-center gap-1.5">
+                    <BarChart3 className="w-3.5 h-3.5 text-indigo-600" aria-hidden="true" />
+                    <span>Crop Stress Risk</span>
+                  </span>
+                </button>
+              )}
               <button
-                onClick={() => setActiveTab('explanation')}
+                onClick={() => {
+                  setActiveTab('forecast');
+                  if (!ndviForecast && !ndviLoading) {
+                    fetchNdviForecast();
+                  }
+                }}
                 className={`px-3 py-1.5 rounded-lg transition ${
-                  activeTab === 'explanation'
-                    ? 'bg-white text-slate-900 shadow-2xs font-bold'
+                  activeTab === 'forecast'
+                    ? 'bg-white text-emerald-900 shadow-2xs font-bold'
                     : 'text-slate-500 hover:text-slate-900'
                 }`}
               >
                 <span className="flex items-center gap-1.5">
-                  <BarChart3 className="w-3.5 h-3.5 text-indigo-600" aria-hidden="true" />
-                  <span>SHAP Attributions</span>
-                </span>
-              </button>
-              <button
-                onClick={() => setActiveTab('features')}
-                className={`px-3 py-1.5 rounded-lg transition ${
-                  activeTab === 'features'
-                    ? 'bg-white text-slate-900 shadow-2xs font-bold'
-                    : 'text-slate-500 hover:text-slate-900'
-                }`}
-              >
-                <span className="flex items-center gap-1.5">
-                  <TableProperties className="w-3.5 h-3.5 text-slate-500" aria-hidden="true" />
-                  <span>Feature Snapshot (17)</span>
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-600" aria-hidden="true" />
+                  <span>7-Day NDVI Forecast</span>
                 </span>
               </button>
             </div>
           )}
 
-          <button
-            onClick={() => fetchRisk(true)}
-            disabled={loading || refreshing}
-            data-testid="ml-refresh-button"
-            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold shadow-xs transition"
-          >
-            {refreshing ? (
-              <>
-                <RefreshCw className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
-                <span>Evaluating...</span>
-              </>
-            ) : (
-              <>
-                <RefreshCw className="w-3.5 h-3.5" aria-hidden="true" />
-                <span>{prediction ? 'Re-evaluate ML Risk' : 'Evaluate ML Risk'}</span>
-              </>
-            )}
-          </button>
+          {activeTab === 'forecast' ? (
+            <button
+              onClick={fetchNdviForecast}
+              disabled={ndviLoading}
+              data-testid="ndvi-refresh-button"
+              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white text-xs font-bold shadow-xs transition"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${ndviLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
+              <span>{ndviLoading ? 'Forecasting...' : 'Update NDVI Forecast'}</span>
+            </button>
+          ) : (
+            <button
+              onClick={() => fetchRisk(true)}
+              disabled={loading || refreshing}
+              data-testid="ml-refresh-button"
+              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold shadow-xs transition"
+            >
+              {refreshing ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
+                  <span>Evaluating...</span>
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5" aria-hidden="true" />
+                  <span>{prediction ? 'Re-evaluate ML Risk' : 'Evaluate ML Risk'}</span>
+                </>
+              )}
+            </button>
+          )}
         </div>
       </div>
 
       {/* Main Content Area */}
-      {loading ? (
+      {activeTab === 'forecast' ? (
+        ndviLoading ? (
+          <div
+            data-testid="ndvi-forecast-loading"
+            className="py-16 flex flex-col items-center justify-center space-y-3"
+          >
+            <LoadingSpinner size="lg" />
+            <p className="text-xs text-slate-500 font-medium">
+              Generating 7-day Sentinel-2 NDVI forecast with local SHAP attributions...
+            </p>
+          </div>
+        ) : ndviError ? (
+          <div data-testid="ndvi-forecast-error-container" className="space-y-4">
+            {ndviError.isAuthError ? (
+              <div
+                data-testid="ndvi-forecast-auth-alert"
+                className="p-6 rounded-2xl bg-slate-50 border border-slate-300 text-slate-800 space-y-3"
+              >
+                <div className="flex items-start gap-3">
+                  <Lock className="w-6 h-6 text-slate-600 flex-shrink-0 mt-0.5" aria-hidden="true" />
+                  <div className="space-y-1">
+                    <h4 className="text-sm font-bold text-slate-900">
+                      Producer Authentication Required
+                    </h4>
+                    <p className="text-xs text-slate-600 leading-relaxed">{ndviError.message}</p>
+                  </div>
+                </div>
+                <div className="text-[11px] text-slate-500 pl-9">
+                  Access to 7-day Sentinel-2 NDVI vegetation forecasting requires an authenticated producer session.
+                </div>
+                <div className="pl-9 pt-1 flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => (onOpenAuthModal ? onOpenAuthModal() : setAuthModalOpen(true))}
+                    data-testid="ndvi-forecast-auth-btn"
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs transition shadow-xs"
+                  >
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Authenticate as Producer</span>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div
+                data-testid="ndvi-forecast-error-alert"
+                className="p-6 rounded-2xl bg-rose-50 border border-rose-200 text-center space-y-3"
+              >
+                <AlertTriangle className="w-8 h-8 text-rose-500 mx-auto" aria-hidden="true" />
+                <div className="space-y-1">
+                  <h4 className="text-sm font-bold text-rose-900">
+                    Failed to Generate NDVI Forecast
+                  </h4>
+                  <p className="text-xs text-rose-700 max-w-md mx-auto">{ndviError.message}</p>
+                </div>
+                <button
+                  onClick={fetchNdviForecast}
+                  className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-white border border-rose-300 text-xs font-bold text-rose-800 hover:bg-rose-50 transition shadow-2xs"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" aria-hidden="true" />
+                  <span>Retry NDVI Forecast</span>
+                </button>
+              </div>
+            )}
+          </div>
+        ) : ndviForecast ? (
+          <NdviForecastCard
+            forecast={ndviForecast}
+            onRefresh={fetchNdviForecast}
+            refreshing={ndviLoading}
+          />
+        ) : (
+          <div
+            data-testid="ndvi-forecast-empty-state"
+            className="p-8 text-center space-y-4 rounded-2xl bg-slate-50 border border-slate-200/80"
+          >
+            <div className="w-12 h-12 mx-auto rounded-full bg-emerald-50 flex items-center justify-center text-emerald-600">
+              <Sparkles className="w-6 h-6" aria-hidden="true" />
+            </div>
+            <div className="max-w-md mx-auto space-y-1">
+              <h4 className="text-sm font-bold text-slate-800">
+                7-Day Vegetation Condition Forecast
+              </h4>
+              <p className="text-xs text-slate-500">
+                Predict next-week Sentinel-2 NDVI canopy conditions and compute local SHAP environmental attributions.
+              </p>
+            </div>
+            <button
+              onClick={fetchNdviForecast}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold shadow-xs transition"
+            >
+              <Sparkles className="w-3.5 h-3.5 fill-current" aria-hidden="true" />
+              <span>Generate 7-Day NDVI Forecast</span>
+            </button>
+          </div>
+        )
+      ) : loading ? (
         <div
           data-testid="ml-risk-loading"
           className="py-16 flex flex-col items-center justify-center space-y-3"
@@ -194,6 +381,24 @@ export const FarmMlRiskSection: React.FC<FarmMlRiskSectionProps> = ({
               <div className="text-[11px] text-amber-800/90 pl-9">
                 Feature Contract v1.1 mandates exactly 720 consecutive hourly weather observations (30 days) to calculate rolling aggregations, dry spell indices, and thermal amplitude.
               </div>
+              <div className="pt-3 border-t border-amber-200/80 mt-2 pl-9 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="text-[11px] text-amber-900 font-medium">
+                  <strong>Alternative Verified Model:</strong> 7-Day Sentinel-2 NDVI Vegetation Forecasting does not require 720 consecutive hours.
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('forecast');
+                    if (!ndviForecast && !ndviLoading) {
+                      fetchNdviForecast();
+                    }
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold shadow-2xs transition flex-shrink-0"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Run 7-Day NDVI Forecast</span>
+                </button>
+              </div>
             </div>
           ) : error.isAuthError ? (
             /* 401 / 403 Authentication & Ownership Gap */
@@ -212,6 +417,26 @@ export const FarmMlRiskSection: React.FC<FarmMlRiskSectionProps> = ({
               </div>
               <div className="text-[11px] text-slate-500 pl-9">
                 In adherence to platform data privacy policy, machine learning crop risk evaluations are restricted to the verified farm producer (<code className="font-mono text-slate-700">farm.farmerId === req.user.id</code>).
+              </div>
+              <div className="pl-9 pt-1 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => (onOpenAuthModal ? onOpenAuthModal() : setAuthModalOpen(true))}
+                  data-testid="ml-risk-auth-btn"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs transition shadow-xs active:scale-95"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Authenticate as Producer</span>
+                </button>
+                {auth.isAuthenticated && (
+                  <button
+                    type="button"
+                    onClick={auth.logout}
+                    className="text-xs text-slate-500 hover:text-slate-800 underline px-2 py-1"
+                  >
+                    Switch Account
+                  </button>
+                )}
               </div>
             </div>
           ) : error.isServiceUnavailable ? (
@@ -358,6 +583,19 @@ export const FarmMlRiskSection: React.FC<FarmMlRiskSectionProps> = ({
           )}
         </div>
       )}
+
+      {/* Producer Authentication Modal */}
+      <ProducerAuthModal
+        isOpen={authModalOpen}
+        onClose={() => setAuthModalOpen(false)}
+        onAuthenticated={() => {
+          if (activeTab === 'forecast') {
+            fetchNdviForecast();
+          } else {
+            fetchRisk(true);
+          }
+        }}
+      />
     </div>
   );
 };

@@ -283,7 +283,7 @@ export const NdviSummaryCard: React.FC<NdviSummaryCardProps> = ({ observation })
 
           <div className="flex items-center gap-2 text-[11px] text-slate-500">
             <span>Granule:</span>
-            <span className="font-mono text-slate-700 truncate max-w-xs" title={sat.productId || undefined} data-testid="sat-product-id">
+            <span className="font-mono text-slate-700 truncate max-w-[180px] sm:max-w-xs" title={sat.productId || undefined} data-testid="sat-product-id">
               {sat.productId || 'N/A'}
             </span>
             {sat.provider && (

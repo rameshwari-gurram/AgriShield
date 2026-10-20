@@ -11,10 +11,12 @@ import {
 } from '../../validators/farm.validator.js';
 
 import { farmBoundaryRoutes } from './farmBoundary.routes.js';
-import { weatherRoutes } from '../weather.routes.js';
+import { weatherRoutes } from './weather.routes.js';
 import { farmRiskRoutes } from '../riskAssessment.routes.js';
 import { satelliteRoutes } from '../satellite.routes.js';
 import { mlRiskRoutes } from './mlRisk.routes.js';
+import { farmPolicyRoutes } from './policy.routes.js';
+import { farmClaimRoutes } from './claim.routes.js';
 
 const router = Router();
 
@@ -32,6 +34,13 @@ router.use('/:farmId/satellite', satelliteRoutes);
 
 // Mount farm ML risk advisory sub-routes (/api/v1/farms/:farmId/ml-risk)
 router.use('/:farmId/ml-risk', mlRiskRoutes);
+
+// Mount farm policy sub-routes (/api/v1/farms/:farmId/policies)
+router.use('/:farmId/policies', farmPolicyRoutes);
+
+// Mount farm claims sub-routes (/api/v1/farms/:farmId/claims)
+router.use('/:farmId/claims', farmClaimRoutes);
+
 
 // Register new farm
 router.post(

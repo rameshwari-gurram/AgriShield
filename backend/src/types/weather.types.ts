@@ -99,7 +99,8 @@ export interface IWeatherProvider {
   fetchRecentHourlyWeather(
     latitude: number,
     longitude: number,
-    referenceNow?: Date
+    referenceNow?: Date,
+    pastDays?: number
   ): Promise<NormalizedWeatherDTO[]>;
 }
 

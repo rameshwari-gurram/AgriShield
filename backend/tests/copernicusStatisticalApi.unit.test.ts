@@ -229,8 +229,11 @@ async function runCopernicusStatisticalApiUnitTests() {
 
   // 2. CRS specification
   assert(
-    request.input.bounds.properties.crs === 'http://www.opengis.net/def/crs/EPSG/0/4326',
-    '2. CRS specification: EPSG:4326 correctly formatted as http://www.opengis.net/def/crs/EPSG/0/4326'
+    request.input.bounds.properties.crs ===
+    'http://www.opengis.net/def/crs/OGC/1.3/CRS84',
+  '2. CRS specification: CRS84 correctly specifies longitude/latitude coordinate order'
+    // request.input.bounds.properties.crs === 'http://www.opengis.net/def/crs/EPSG/0/4326',
+    // '2. CRS specification: EPSG:4326 correctly formatted as http://www.opengis.net/def/crs/EPSG/0/4326'
   );
 
   // 3. Coordinate order [longitude, latitude]
@@ -278,8 +281,11 @@ async function runCopernicusStatisticalApiUnitTests() {
 
   // 8. Spatial resolution: 10m
   assert(
-    request.aggregation.resx === 10 && request.aggregation.resy === 10,
-    '8. Spatial resolution: resx: 10, resy: 10 specified in aggregation'
+    request.aggregation.resx === 0.00009 &&
+    request.aggregation.resy === 0.00009,
+  '8. Spatial resolution: approximately 10 m using CRS84 degree units'
+    // request.aggregation.resx === 10 && request.aggregation.resy === 10,
+    // '8. Spatial resolution: resx: 10, resy: 10 specified in aggregation'
   );
 
   // 9. Daily aggregation

@@ -19,7 +19,10 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { riskAssessmentService } from '../../services/riskAssessmentService';
-import { RiskAssessment } from '../../types';
+import { RiskAssessment, Claim } from '../../types';
+import { useAuth } from '../../context/AuthContext';
+import { policyClaimService } from '../../services/policyClaimService';
+import { farmService } from '../../services/farmService';
 import { LoadingSpinner } from '../LoadingSpinner';
 import { RiskAssessmentSummaryCard } from './RiskAssessmentSummaryCard';
 import { InsufficientDataWarning } from './InsufficientDataWarning';
@@ -30,6 +33,7 @@ import { RiskAssessmentAuditModal } from './RiskAssessmentAuditModal';
 
 export interface FarmRiskSectionProps {
   farmId: string;
+  farmerId?: string;
   initialAssessment?: RiskAssessment | null;
   initialLoading?: boolean;
   initialError?: string | null;
@@ -38,10 +42,13 @@ export interface FarmRiskSectionProps {
   initialHistory?: RiskAssessment[];
   initialHistoryLoading?: boolean;
   initialHistoryError?: string | null;
+  initialClaims?: Claim[];
+  onClaimEvaluated?: (claim: Claim) => void;
 }
 
 export const FarmRiskSection: React.FC<FarmRiskSectionProps> = ({
   farmId,
+  farmerId,
   initialAssessment = null,
   initialLoading = true,
   initialError = null,
@@ -50,7 +57,29 @@ export const FarmRiskSection: React.FC<FarmRiskSectionProps> = ({
   initialHistory = [],
   initialHistoryLoading = false,
   initialHistoryError = null,
+  initialClaims,
+  onClaimEvaluated,
 }) => {
+  const { isAuthenticated, producerToken } = useAuth();
+  const [claims, setClaims] = useState<Claim[]>(initialClaims || []);
+  const [resolvedFarmerId, setResolvedFarmerId] = useState<string | undefined>(farmerId);
+
+  useEffect(() => {
+    if (farmerId) {
+      setResolvedFarmerId(farmerId);
+      return;
+    }
+    if (!farmId) return;
+    farmService
+      .getFarmById(farmId)
+      .then((res) => {
+        if (res.data?.farmerId) {
+          setResolvedFarmerId(res.data.farmerId);
+        }
+      })
+      .catch(() => {});
+  }, [farmId, farmerId]);
+
   // Latest assessment state
   const [latestAssessment, setLatestAssessment] = useState<RiskAssessment | null>(initialAssessment);
   const [loadingLatest, setLoadingLatest] = useState(initialLoading);
@@ -124,6 +153,17 @@ export const FarmRiskSection: React.FC<FarmRiskSectionProps> = ({
     }
   }, [farmId, historyLimit]);
 
+  // Fetch claims for parcel to detect existing claim registrations
+  const fetchClaims = useCallback(async () => {
+    if (!isAuthenticated || !producerToken) return;
+    try {
+      const res = await policyClaimService.getFarmClaims(farmId, { token: producerToken });
+      setClaims(res.data || []);
+    } catch {
+      // Ignore background claims load errors
+    }
+  }, [farmId, isAuthenticated, producerToken]);
+
   // Mount effects
   useEffect(() => {
     if (initialAssessment === null && initialLoading) {
@@ -137,6 +177,19 @@ export const FarmRiskSection: React.FC<FarmRiskSectionProps> = ({
       fetchHistory();
     }
   }, [fetchHistory, initialHistory.length, initialHistoryLoading, initialHistoryError]);
+
+  useEffect(() => {
+    if (initialClaims === undefined) {
+      fetchClaims();
+    }
+  }, [fetchClaims, initialClaims]);
+
+  const handleClaimEvaluated = (newClaim: Claim) => {
+    setClaims((prev) => [newClaim, ...prev.filter((c) => c.id !== newClaim.id)]);
+    if (onClaimEvaluated) {
+      onClaimEvaluated(newClaim);
+    }
+  };
 
   // Handle triggering a new assessment
   const handleRunAssessment = async () => {
@@ -302,7 +355,13 @@ export const FarmRiskSection: React.FC<FarmRiskSectionProps> = ({
             assessment={latestAssessment}
             onViewProvenance={handleOpenProvenance}
           />
-          <RiskEventList events={latestAssessment.events || []} />
+          <RiskEventList
+            events={latestAssessment.events || []}
+            farmId={farmId}
+            farmerId={resolvedFarmerId}
+            claims={claims}
+            onClaimEvaluated={handleClaimEvaluated}
+          />
           <RiskAssessmentHistory
             farmId={farmId}
             history={history}
@@ -319,6 +378,10 @@ export const FarmRiskSection: React.FC<FarmRiskSectionProps> = ({
       {/* Historical Assessment Modal */}
       <HistoricalAssessmentModal
         assessmentId={selectedAssessmentId}
+        farmId={farmId}
+        farmerId={resolvedFarmerId}
+        claims={claims}
+        onClaimEvaluated={handleClaimEvaluated}
         isOpen={modalOpen}
         onClose={handleCloseModal}
         onViewProvenance={handleOpenProvenance}

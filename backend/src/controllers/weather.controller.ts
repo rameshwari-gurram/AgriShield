@@ -41,7 +41,9 @@ export class WeatherController {
   async syncWeather(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { farmId } = req.params;
-      const result = await this.service.syncWeather(farmId);
+      const forceBackfill = req.query.force === 'true' || req.body?.force === true;
+      const pastDays = req.query.pastDays ? parseInt(req.query.pastDays as string, 10) : undefined;
+      const result = await this.service.syncWeather(farmId, { forceBackfill, pastDays });
       res.status(200).json(
         ApiResponse.success(result, 'Weather data synchronized successfully', req.correlationId)
       );

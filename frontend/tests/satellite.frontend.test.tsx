@@ -99,7 +99,7 @@ async function runTestSuite() {
     formatNdviChartData,
     CustomNdviTooltip,
   } = await import('../src/components/satellite/NdviHistoryChart');
-  const { FarmSatelliteSection } = await import('../src/components/satellite/FarmSatelliteSection');
+  const { FarmSatelliteSection, isNotFoundError } = await import('../src/components/satellite/FarmSatelliteSection');
 
   // Mock observation builder
   const createMockObservation = (overrides: Partial<NdviObservationDTO> = {}): NdviObservationDTO => ({
@@ -828,7 +828,9 @@ async function runTestSuite() {
 
   const fs = await import('node:fs');
   const path = await import('node:path');
-  const farmDetailPagePath = path.resolve('src/pages/farms/FarmDetailPage.tsx');
+  const farmDetailPagePath = fs.existsSync(path.resolve('src/pages/farms/FarmDetailPage.tsx'))
+    ? path.resolve('src/pages/farms/FarmDetailPage.tsx')
+    : path.resolve('frontend/src/pages/farms/FarmDetailPage.tsx');
   const farmDetailPageSource = fs.readFileSync(farmDetailPagePath, 'utf-8');
 
   // Test 57: FarmSatelliteSection is imported in FarmDetailPage
@@ -912,6 +914,141 @@ async function runTestSuite() {
   assert(
     integratedNoBoundaryHtml.includes('disabled=""') || integratedNoBoundaryHtml.includes('disabled'),
     '62. Farm without boundary renders disabled sync action'
+  );
+
+  // ==========================================
+  // Part 11: 404 Empty State, Retry Controls & Layout Stability
+  // ==========================================
+  console.log('\n--- Part 11: 404 Detection, Layout Stability & Retry Controls ---');
+
+  // Test 63: isNotFoundError accurately discriminates 404 from other statuses
+  assert(isNotFoundError({ response: { status: 404 } }), '63. Detects Axios { response: { status: 404 } }');
+  assert(isNotFoundError({ status: 404 }), '63. Detects standard error { status: 404 }');
+  assert(isNotFoundError({ statusCode: 404 }), '63. Detects AppError { statusCode: 404 }');
+  assert(isNotFoundError({ response: { data: { statusCode: 404 } } }), '63. Detects envelope { response: { data: { statusCode: 404 } } }');
+  assert(!isNotFoundError({ response: { status: 500 } }), '63. Does NOT treat HTTP 500 as not found');
+  assert(!isNotFoundError({ response: { status: 400 } }), '63. Does NOT treat HTTP 400 as not found');
+  assert(!isNotFoundError(new Error('Network connection failure')), '63. Does NOT treat generic network error as not found');
+
+  // Test 64: Required friendly empty state messaging on 404
+  const emptySectionHtml = renderToStaticMarkup(
+    React.createElement(FarmSatelliteSection, {
+      farmId: dummyFarmId,
+      hasBoundary: true,
+      initialLatest: null,
+      initialHistorical: [],
+    })
+  );
+  assert(
+    emptySectionHtml.includes('No satellite observations available yet. Sync satellite data to get started.'),
+    '64. Latest NDVI empty state displays required user-friendly text'
+  );
+  assert(
+    emptySectionHtml.includes('No satellite observations available yet. Sync satellite data to get started.'),
+    '64. Historical trend empty state displays required user-friendly text'
+  );
+
+  // Test 65: Dimensional stability across all Latest NDVI states (min-h-[160px])
+  const latestLoadingStabilityHtml = renderToStaticMarkup(
+    React.createElement(FarmSatelliteSection, {
+      farmId: dummyFarmId,
+      hasBoundary: true,
+      initialLoadingLatest: true,
+    })
+  );
+  assert(
+    latestLoadingStabilityHtml.includes('min-h-[160px]'),
+    '65. Latest loading container includes min-h-[160px] for dimensional stability'
+  );
+
+  assert(
+    emptySectionHtml.includes('min-h-[160px]'),
+    '65. Latest empty container includes min-h-[160px] for dimensional stability'
+  );
+
+  const latestErrorStabilityHtml = renderToStaticMarkup(
+    React.createElement(FarmSatelliteSection, {
+      farmId: dummyFarmId,
+      hasBoundary: true,
+      initialLatestError: 'Temporary network disconnect',
+    })
+  );
+  assert(
+    latestErrorStabilityHtml.includes('min-h-[160px]'),
+    '65. Latest error container includes min-h-[160px] for dimensional stability'
+  );
+
+  // Test 66: Non-404 error states render actionable Retry buttons
+  assert(
+    latestErrorStabilityHtml.includes('data-testid="retry-latest-ndvi-button"'),
+    '66. Latest NDVI error displays actionable Retry button'
+  );
+  assert(
+    latestErrorStabilityHtml.includes('Retry'),
+    '66. Latest retry button renders Retry label'
+  );
+
+  const historyChartErrorHtml = renderToStaticMarkup(
+    React.createElement(NdviHistoryChart, {
+      observations: [],
+      error: 'Upstream gateway 502 Bad Gateway',
+      onRetry: () => {},
+    })
+  );
+  assert(
+    historyChartErrorHtml.includes('data-testid="retry-history-ndvi-button"'),
+    '66. Historical chart error displays actionable Retry button when onRetry is provided'
+  );
+  assert(
+    historyChartErrorHtml.includes('Retry Trend Data'),
+    '66. Historical chart retry button renders Retry Trend Data label'
+  );
+
+  // Test 67: Loading-state exits cleanly when data or empty state is present
+  assert(
+    !emptySectionHtml.includes('data-testid="latest-ndvi-loading"'),
+    '67. Empty state does not keep latest loading spinner active'
+  );
+  assert(
+    !emptySectionHtml.includes('data-testid="ndvi-chart-loading"'),
+    '67. Empty state does not keep chart loading spinner active'
+  );
+  assert(
+    !sectionPopulatedHtml.includes('data-testid="latest-ndvi-loading"'),
+    '67. Populated state does not keep latest loading spinner active'
+  );
+  assert(
+    !sectionPopulatedHtml.includes('data-testid="ndvi-chart-loading"'),
+    '67. Populated state does not keep chart loading spinner active'
+  );
+
+  // Test 68: Envelope mismatch handling: formatNdviChartData handles non-array / null gracefully
+  assert(formatNdviChartData(null as any).length === 0, '68. formatNdviChartData(null) returns empty array without throwing');
+  assert(formatNdviChartData(undefined as any).length === 0, '68. formatNdviChartData(undefined) returns empty array without throwing');
+  assert(formatNdviChartData([]).length === 0, '68. formatNdviChartData([]) returns empty array');
+
+  // Test 69: Responsive container in chart includes responsive container and min-width constraint
+  const populatedChartMarkup = renderToStaticMarkup(
+    React.createElement(NdviHistoryChart, {
+      observations: chronologicalObs,
+      loading: false,
+    })
+  );
+  assert(
+    populatedChartMarkup.includes('recharts-responsive-container') &&
+      (populatedChartMarkup.includes('min-width:0') || populatedChartMarkup.includes('min-width: 0')),
+    '69. ResponsiveContainer renders responsive width container with min-width constraint'
+  );
+
+  // Test 70: Metadata bar in NdviSummaryCard has responsive width boundary
+  const summaryCardHtml = renderToStaticMarkup(
+    React.createElement(NdviSummaryCard, {
+      observation: highObs,
+    })
+  );
+  assert(
+    summaryCardHtml.includes('max-w-[180px] sm:max-w-xs'),
+    '70. NdviSummaryCard contains max-w-[180px] sm:max-w-xs for responsive mobile rendering'
   );
 
   console.log('\n==================================================');

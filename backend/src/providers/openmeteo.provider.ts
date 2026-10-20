@@ -205,15 +205,18 @@ export class OpenMeteoProvider implements IWeatherProvider {
   }
 
   /**
-   * Fetch recent hourly weather observations for the preceding 24-hour window.
+   * Fetch recent hourly weather observations for the preceding window (default: 1 day, up to 90 days).
    * Discards future forecast hours and strictly normalizes past observations.
    */
   async fetchRecentHourlyWeather(
     latitude: number,
     longitude: number,
-    referenceNow?: Date
+    referenceNow?: Date,
+    pastDays: number = 1
   ): Promise<NormalizedWeatherDTO[]> {
     this.validateCoordinates(latitude, longitude);
+
+    const safePastDays = Math.min(90, Math.max(1, Math.floor(pastDays || 1)));
 
     let data: RawOpenMeteoHourlyResponse;
     try {
@@ -222,7 +225,7 @@ export class OpenMeteoProvider implements IWeatherProvider {
           latitude,
           longitude,
           hourly: 'temperature_2m,relative_humidity_2m,precipitation,wind_speed_10m,wind_gusts_10m,weather_code',
-          past_days: 1,
+          past_days: safePastDays,
           forecast_days: 1,
           timezone: 'UTC',
         },
@@ -277,9 +280,9 @@ export class OpenMeteoProvider implements IWeatherProvider {
       );
     }
 
-    // Determine the preceding 24-hour observation window (UTC)
+    // Determine the preceding observation window (UTC)
     const now = referenceNow || new Date();
-    const windowStart = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const windowStart = new Date(now.getTime() - safePastDays * 24 * 60 * 60 * 1000);
     const windowEnd = now;
 
     const normalizedRecords: NormalizedWeatherDTO[] = [];
@@ -287,7 +290,7 @@ export class OpenMeteoProvider implements IWeatherProvider {
     for (let i = 0; i < length; i++) {
       const observedAt = this.parseUtcTimestamp(time[i]);
 
-      // Only include observations within the preceding 24-hour window (ignore future forecast hours)
+      // Only include observations within the preceding observation window (ignore future forecast hours)
       if (observedAt >= windowStart && observedAt <= windowEnd) {
         this.validateMetrics(
           temperature_2m[i],

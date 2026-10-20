@@ -59,10 +59,11 @@ async function runTestSuite() {
   const { renderToStaticMarkup } = await import('react-dom/server');
   const { apiClient } = await import('../src/services/api.js');
   const { mlRiskService, parseMlRiskErrorMessage } = await import('../src/services/mlRiskService.js');
-  const { CANONICAL_FEATURE_NAMES } = await import('../src/types/mlRisk.js');
+  const { CANONICAL_FEATURE_NAMES, NdviForecastResponse } = await import('../src/types/mlRisk.js');
   const { MlRiskScoreCard } = await import('../src/components/mlRisk/MlRiskScoreCard.js');
   const { ShapExplanationChart } = await import('../src/components/mlRisk/ShapExplanationChart.js');
   const { FarmMlRiskSection } = await import('../src/components/mlRisk/FarmMlRiskSection.js');
+  const { NdviForecastCard } = await import('../src/components/mlRisk/NdviForecastCard.js');
 
   const FARM_A_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
@@ -125,6 +126,42 @@ async function runTestSuite() {
       isCached,
     };
   };
+
+  const createSampleNdviForecast = (): any => ({
+    predicted_ndvi: 0.5421,
+    current_ndvi: 0.512,
+    predicted_delta: 0.0301,
+    explanation: {
+      base_value: 0.485,
+      reconstructed_prediction: 0.5421,
+      additivity_error: 0.00001,
+      attributions: [
+        {
+          feature_name: 'NDVI_lag_1',
+          feature_value: 0.512,
+          shap_value: 0.035,
+          direction: 'positive contribution (increases forecast)',
+          contribution_magnitude: 0.035,
+        },
+        {
+          feature_name: 'precipitation_sum_30d',
+          feature_value: 120.5,
+          shap_value: 0.022,
+          direction: 'positive contribution (increases forecast)',
+          contribution_magnitude: 0.022,
+        },
+      ],
+    },
+    model: {
+      model_name: 'HistGradientBoostingRegressor',
+      model_version: '1.0.0',
+      feature_contract_version: 'v1.0-ieee-29f',
+      feature_count: 29,
+    },
+    disclaimer:
+      'This 7-day NDVI vegetation forecast is an advisory estimate based on historical Sentinel-2 and agro-meteorological observations from the IEEE AgriVision dataset.',
+    generated_at: new Date().toISOString(),
+  });
 
   // ==========================================================================
   console.log('--- Part 1: mlRiskService API Client Contract & Dispatch ---');
@@ -425,6 +462,141 @@ async function runTestSuite() {
     assert(!combinedModule8Code.includes('riskAssessmentService'), '7.2 Zero reference to Module 6 riskAssessmentService');
     assert(!combinedModule8Code.includes('createRiskAssessment'), '7.3 Zero trigger of Module 6 rule assessment');
     assert(!combinedModule8Code.includes('payoutAmount') && !combinedModule8Code.includes('claimStatus'), '7.4 Zero payout or claim authorization logic');
+  }
+
+  // ==========================================================================
+  console.log('\n--- Part 8: 7-Day Sentinel-2 NDVI Forecast & Explainability ---');
+  // ==========================================================================
+  {
+    // 8.1 API client endpoint and token dispatch
+    let capturedUrl = '';
+    let capturedHeaders: Record<string, string> = {};
+    const originalGet = apiClient.get;
+    apiClient.get = (async (url: string, config?: any) => {
+      capturedUrl = url;
+      capturedHeaders = config?.headers || {};
+      return {
+        data: {
+          success: true,
+          data: createSampleNdviForecast(),
+        },
+      };
+    }) as any;
+
+    try {
+      const res = await mlRiskService.getFarmNdviForecast(FARM_A_ID, { token: 'jwt.token.secret' });
+      assert(capturedUrl === `/farms/${FARM_A_ID}/ml-risk/ndvi-forecast`, '8.1 Calls endpoint /farms/:farmId/ml-risk/ndvi-forecast');
+      assert(capturedHeaders['Authorization'] === 'Bearer jwt.token.secret', '8.1 Forwards Authorization Bearer header when token is supplied');
+      assert(res.data.predicted_ndvi === 0.5421, '8.1 Returns typed NdviForecastResponse');
+    } finally {
+      apiClient.get = originalGet;
+    }
+
+    // 8.2 NdviForecastCard Component Presentation
+    const sampleForecast = createSampleNdviForecast();
+    const htmlForecastCard = renderToStaticMarkup(
+      React.createElement(NdviForecastCard, {
+        forecast: sampleForecast,
+      })
+    );
+    assert(htmlForecastCard.includes('data-testid="ndvi-forecast-card"'), '8.2 Renders ndvi-forecast-card container');
+    assert(htmlForecastCard.includes('0.542'), '8.2 Renders forecasted NDVI value (0.542)');
+    assert(htmlForecastCard.includes('+0.0301'), '8.2 Renders formatted delta with sign (+0.0301)');
+    assert(htmlForecastCard.includes('Dense / Healthy Canopy'), '8.2 Classifies health tier for NDVI >= 0.5');
+    assert(htmlForecastCard.includes('0.512'), '8.2 Renders persistence baseline');
+    assert(htmlForecastCard.includes('Additivity Verified'), '8.2 Renders Additivity Verified badge');
+    assert(htmlForecastCard.includes('HistGradientBoostingRegressor'), '8.2 Renders model architecture');
+    assert(htmlForecastCard.includes('IEEE AgriVision'), '8.2 Renders provenance dataset reference');
+
+    // 8.3 FarmMlRiskSection with initialTab: 'forecast'
+    const htmlSectionForecast = renderToStaticMarkup(
+      React.createElement(FarmMlRiskSection, {
+        farmId: FARM_A_ID,
+        initialTab: 'forecast',
+        initialNdviForecast: sampleForecast,
+        initialLoading: false,
+      })
+    );
+    assert(htmlSectionForecast.includes('data-testid="ndvi-forecast-card"'), '8.3 Renders ndvi-forecast-card inside FarmMlRiskSection');
+    assert(htmlSectionForecast.includes('data-testid="ndvi-refresh-button"'), '8.3 Renders NDVI forecast refresh button');
+
+    // 8.4 SHAP Additivity Verification Badge Truthfulness (Correction D)
+    // D1: Verified when additivity_error < 1e-4
+    const forecastVerifiedZero = {
+      ...sampleForecast,
+      explanation: { ...sampleForecast.explanation, additivity_error: 0.0 },
+    };
+    const htmlVerifiedZero = renderToStaticMarkup(
+      React.createElement(NdviForecastCard, { forecast: forecastVerifiedZero })
+    );
+    assert(
+      htmlVerifiedZero.includes('data-testid="shap-additivity-badge"') &&
+        htmlVerifiedZero.includes('Additivity Verified'),
+      '8.4.1 Displays Additivity Verified badge when additivity_error is 0.0'
+    );
+
+    const forecastVerifiedSmall = {
+      ...sampleForecast,
+      explanation: { ...sampleForecast.explanation, additivity_error: 0.00002 },
+    };
+    const htmlVerifiedSmall = renderToStaticMarkup(
+      React.createElement(NdviForecastCard, { forecast: forecastVerifiedSmall })
+    );
+    assert(
+      htmlVerifiedSmall.includes('data-testid="shap-additivity-badge"'),
+      '8.4.2 Displays Additivity Verified badge when additivity_error is 2e-5 (< 1e-4)'
+    );
+
+    // D2: Omitted when additivity_error >= 1e-4
+    const forecastUnverifiedLarge = {
+      ...sampleForecast,
+      explanation: { ...sampleForecast.explanation, additivity_error: 0.002 },
+    };
+    const htmlUnverifiedLarge = renderToStaticMarkup(
+      React.createElement(NdviForecastCard, { forecast: forecastUnverifiedLarge })
+    );
+    assert(
+      !htmlUnverifiedLarge.includes('data-testid="shap-additivity-badge"') &&
+        !htmlUnverifiedLarge.includes('Additivity Verified'),
+      '8.4.3 Does NOT display Additivity Verified badge when additivity_error is 0.002 (>= 1e-4)'
+    );
+
+    // D3: Omitted when additivity_error is null, NaN, or undefined
+    const forecastNullError = {
+      ...sampleForecast,
+      explanation: { ...sampleForecast.explanation, additivity_error: null },
+    };
+    const htmlNullError = renderToStaticMarkup(
+      React.createElement(NdviForecastCard, { forecast: forecastNullError })
+    );
+    assert(
+      !htmlNullError.includes('data-testid="shap-additivity-badge"'),
+      '8.4.4 Does NOT display badge when additivity_error is null'
+    );
+
+    const forecastNanError = {
+      ...sampleForecast,
+      explanation: { ...sampleForecast.explanation, additivity_error: NaN },
+    };
+    const htmlNanError = renderToStaticMarkup(
+      React.createElement(NdviForecastCard, { forecast: forecastNanError })
+    );
+    assert(
+      !htmlNanError.includes('data-testid="shap-additivity-badge"'),
+      '8.4.5 Does NOT display badge when additivity_error is NaN'
+    );
+
+    const forecastUndefinedError = {
+      ...sampleForecast,
+      explanation: { ...sampleForecast.explanation, additivity_error: undefined },
+    };
+    const htmlUndefinedError = renderToStaticMarkup(
+      React.createElement(NdviForecastCard, { forecast: forecastUndefinedError })
+    );
+    assert(
+      !htmlUndefinedError.includes('data-testid="shap-additivity-badge"'),
+      '8.4.6 Does NOT display badge when additivity_error is undefined'
+    );
   }
 
   // ==========================================================================

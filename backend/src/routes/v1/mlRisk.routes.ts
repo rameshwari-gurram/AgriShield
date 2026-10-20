@@ -36,4 +36,17 @@ router.get(
   mlRiskController.getFarmRisk.bind(mlRiskController)
 );
 
+/**
+ * @route   GET /api/v1/farms/:farmId/ml-risk/ndvi-forecast
+ * @desc    Forecast 7-day ahead Sentinel-2 NDVI vegetation health for a farm parcel
+ * @access  Protected (Requires Bearer JWT and verified farm ownership)
+ */
+router.get(
+  '/ndvi-forecast',
+  authenticateJwt,
+  validateParams(farmIdParamSchema),
+  authorizeFarmAccess,
+  mlRiskController.getFarmNdviForecast.bind(mlRiskController)
+);
+
 export const mlRiskRoutes = router;

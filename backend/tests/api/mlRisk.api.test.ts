@@ -494,6 +494,63 @@ async function runStage83DApiTests() {
       console.log('  ✅ PASSED: 15.2 Endpoint remains strictly advisory, decoupled from claims/payouts');
     }
 
+    // --------------------------------------------------------------------------
+    console.log('\n--- TEST 16: NDVI Vegetation Health Forecast Endpoint ---');
+    // --------------------------------------------------------------------------
+    {
+      const mockNdviService = {
+        forecastFarmNdvi: async (_farmId: string) => ({
+          predicted_ndvi: 0.435,
+          current_ndvi: 0.42,
+          predicted_delta: 0.015,
+          forecast_horizon: '7_days',
+          target_variable: 'NDVI_next_week',
+          baseline_persistence_ndvi: 0.42,
+          explanation: {
+            base_value: 0.3505,
+            reconstructed_prediction: 0.435,
+            additivity_error: 0.0000001,
+            attributions: [],
+          },
+          model: {
+            model_name: 'AgriVision-NDVI-Forecast-HGB',
+            model_version: '1.0.0',
+            feature_contract_version: 'v1.0-ndvi-29',
+            feature_count: 29,
+          },
+          disclaimer: 'Advisory NDVI forecast disclaimer',
+        }),
+      };
+      mlRiskController.setNdviService(mockNdviService as any);
+
+      // 16a. Success with valid token
+      const res = await fetch(`${baseUrl}/api/v1/farms/${FARM_A_ID}/ml-risk/ndvi-forecast`, {
+        headers: { Authorization: `Bearer ${validFarmerAToken}` },
+      });
+      const body = await res.json();
+
+      assert.equal(res.status, 200);
+      assert.equal(body.success, true);
+      assert.equal(body.data.target_variable, 'NDVI_next_week');
+      assert.equal(body.data.predicted_ndvi, 0.435);
+
+      // 16b. 401 without auth
+      const resNoAuth = await fetch(`${baseUrl}/api/v1/farms/${FARM_A_ID}/ml-risk/ndvi-forecast`);
+      assert.equal(resNoAuth.status, 401);
+
+      // 16c. 403 with wrong farmer
+      const resWrongFarmer = await fetch(`${baseUrl}/api/v1/farms/${FARM_A_ID}/ml-risk/ndvi-forecast`, {
+        headers: { Authorization: `Bearer ${validFarmerBToken}` },
+      });
+      assert.equal(resWrongFarmer.status, 403);
+
+      passed += 4;
+      console.log('  ✅ PASSED: 16.1 Authenticated caller receives HTTP 200 with NDVI forecast');
+      console.log('  ✅ PASSED: 16.2 Target variable is NDVI_next_week');
+      console.log('  ✅ PASSED: 16.3 Missing authentication rejected with HTTP 401');
+      console.log('  ✅ PASSED: 16.4 Unowned farm parcel rejected with HTTP 403');
+    }
+
   } finally {
     // Restore original farmRepository.findById
     (farmRepository as any).findById = originalFindById;
@@ -504,7 +561,7 @@ async function runStage83DApiTests() {
   // Summary
   // --------------------------------------------------------------------------
   console.log('\n================================================================================');
-  console.log(`TEST SUMMARY: ${passed} passed, 0 failed across all 15 test checkpoints`);
+  console.log(`TEST SUMMARY: ${passed} passed, 0 failed across all 16 test checkpoints`);
   console.log('================================================================================\n');
 }
 

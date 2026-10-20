@@ -109,7 +109,7 @@ export function buildCopernicusStatisticalRequest(
           coordinates: boundary.coordinates,
         },
         properties: {
-          crs: 'http://www.opengis.net/def/crs/EPSG/0/4326',
+          crs: 'http://www.opengis.net/def/crs/OGC/1.3/CRS84',
         },
       },
       data: [
@@ -128,8 +128,12 @@ export function buildCopernicusStatisticalRequest(
         of: 'P1D',
       },
       evalscript: SENTINEL2_NDVI_EVALSCRIPT,
-      resx: 10,
-      resy: 10,
+      // resx: 10,
+      // resy: 10,
+      // CRS84 uses longitude/latitude in degrees, not meters.
+// Approximately 10 m at the farm's latitude.
+resx: 0.00009,
+resy: 0.00009,
     },
   };
 }

@@ -1,0 +1,127 @@
+{
+  "model_name": "AgriVision-NDVI-Forecast-HGB",
+  "model_version": "1.0.0",
+  "task_type": "supervised_regression",
+  "target_variable": "NDVI_next_week",
+  "target_description": "7-day ahead Sentinel-2 Normalized Difference Vegetation Index (NDVI)",
+  "target_unit": "NDVI index [-0.2, 1.0]",
+  "forecast_horizon_days": 7,
+  "feature_count": 29,
+  "feature_names": [
+    "NDVI",
+    "Rainfall_Current",
+    "Temperature_Current",
+    "NDVI_lag_1",
+    "NDVI_lag_2",
+    "NDVI_lag_3",
+    "NDVI_lag_4",
+    "NDVI_lag_8",
+    "NDVI_change_1w",
+    "NDVI_change_2w",
+    "NDVI_change_4w",
+    "Rainfall_lag_1",
+    "Rainfall_lag_2",
+    "Rainfall_lag_4",
+    "Rainfall_rolling_2w",
+    "Rainfall_rolling_4w",
+    "Rainfall_rolling_8w",
+    "Temperature_lag_1",
+    "Temperature_lag_2",
+    "Temperature_lag_4",
+    "Temperature_rolling_2w",
+    "Temperature_rolling_4w",
+    "Temperature_rolling_8w",
+    "Week_Sin",
+    "Week_Cos",
+    "Month_Sin",
+    "Month_Cos",
+    "Latitude",
+    "Longitude"
+  ],
+  "dataset_version": "AgriVision_IEEE_GSMaP_2017_2025_v1.0",
+  "total_training_samples": 33549,
+  "unique_monitoring_points": 167,
+  "districts_covered": 31,
+  "hyperparameters": {
+    "max_iter": 100,
+    "learning_rate": 0.08,
+    "max_depth": 6,
+    "min_samples_leaf": 20,
+    "l2_regularization": 1.0,
+    "random_state": 42
+  },
+  "chronological_evaluation": {
+    "split_type": "chronological",
+    "train_years": "2017-2023",
+    "test_years": "2024-2025",
+    "train_samples": 25101,
+    "test_samples": 8448,
+    "baselines": {
+      "historical_mean": {
+        "mae": 0.17119,
+        "rmse": 0.20277,
+        "r2": -0.00126
+      },
+      "persistence": {
+        "mae": 0.04454,
+        "rmse": 0.06906,
+        "r2": 0.88385
+      }
+    },
+    "model_performance": {
+      "mae": 0.04178,
+      "rmse": 0.06308,
+      "r2": 0.90311
+    },
+    "relative_improvement_vs_persistence": {
+      "mae_reduction_pct": 6.2,
+      "rmse_reduction_pct": 8.66
+    }
+  },
+  "spatial_holdout_evaluation": {
+    "split_type": "spatial_holdout",
+    "holdout_districts_count": 6,
+    "holdout_districts": [
+      "Dhule",
+      "Garhchiroli",
+      "Latur",
+      "Nanded",
+      "Raigarh",
+      "Thane"
+    ],
+    "train_samples": 24785,
+    "test_samples": 8764,
+    "baselines": {
+      "historical_mean": {
+        "mae": 0.16978,
+        "rmse": 0.20155,
+        "r2": -0.00213
+      },
+      "persistence": {
+        "mae": 0.04646,
+        "rmse": 0.07022,
+        "r2": 0.87835
+      }
+    },
+    "model_performance": {
+      "mae": 0.0433,
+      "rmse": 0.0648,
+      "r2": 0.89642
+    }
+  },
+  "shap_verification": {
+    "explainer": "shap.TreeExplainer",
+    "base_expected_value": 0.3505,
+    "sample_count_verified": 50,
+    "max_additivity_error": 6.661338147750939e-16,
+    "additivity_verified": true
+  },
+  "software_environment": {
+    "python": "3.11.9",
+    "scikit_learn": "1.5.1",
+    "joblib": "1.4.2",
+    "numpy": "1.26.4",
+    "pandas": "2.2.2",
+    "shap": "0.45.1"
+  }
+}

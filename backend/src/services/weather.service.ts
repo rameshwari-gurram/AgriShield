@@ -201,25 +201,46 @@ export class WeatherService {
    *      b. Idempotently upsert observation via (farmId, observedAt)
    *      c. Return current observation + recordsSynced = 1
    */
-  async syncWeather(farmId: string): Promise<WeatherSyncResultDTO> {
+  async syncWeather(
+    farmId: string,
+    options?: { forceBackfill?: boolean; pastDays?: number }
+  ): Promise<WeatherSyncResultDTO> {
     await this.ensureFarmExists(farmId);
     const { latitude, longitude } = await this.getFarmCentroid(farmId);
 
     const existingCount = await this.weatherRepo.countByFarmId(farmId);
+    const latestExisting = await this.weatherRepo.findLatestByFarmId(farmId);
 
-    if (existingCount === 0) {
+    // Fetch current weather from provider
+    const current = await this.weatherProvider.fetchCurrentWeather(latitude, longitude);
+
+    const ONE_HOUR_MS = 60 * 60 * 1000;
+    const currentTime = new Date(current.observedAt).getTime();
+    const latestExistingTime = latestExisting ? new Date(latestExisting.observedAt).getTime() : 0;
+
+    const isInitialSync = existingCount === 0 || !latestExisting;
+    const isStale = isInitialSync || (currentTime - latestExistingTime) > ONE_HOUR_MS;
+    const shouldFetchHourly = isStale || options?.forceBackfill === true;
+
+    if (shouldFetchHourly) {
       // -----------------------------------------------------------------------
-      // Initial Sync: Fetch current weather + 24h hourly backfill
+      // Stale or Initial Sync: Fetch hourly backfill from provider
+      // Defaults to 35 days (840 hours) to provide complete history for Module 8 ML
       // -----------------------------------------------------------------------
-      const current = await this.weatherProvider.fetchCurrentWeather(latitude, longitude);
-      const hourly = await this.weatherProvider.fetchRecentHourlyWeather(latitude, longitude);
+      const pastDays = options?.pastDays || 35;
+      const hourly = await this.weatherProvider.fetchRecentHourlyWeather(
+        latitude,
+        longitude,
+        undefined,
+        pastDays
+      );
 
       // Deduplicate overlapping timestamps in memory; current observation is authoritative for its hour
       const observationMap = new Map<number, NormalizedWeatherDTO>();
       for (const h of hourly) {
-        observationMap.set(h.observedAt.getTime(), h);
+        observationMap.set(new Date(h.observedAt).getTime(), h);
       }
-      observationMap.set(current.observedAt.getTime(), current);
+      observationMap.set(currentTime, current);
 
       const uniqueObservations = Array.from(observationMap.values());
 
@@ -228,22 +249,21 @@ export class WeatherService {
 
       // Identify the latest observation among persisted records
       const latestRecord = persistedRecords.reduce(
-        (latest, r) => (r.observedAt.getTime() > latest.observedAt.getTime() ? r : latest),
+        (latest, r) => (new Date(r.observedAt).getTime() > new Date(latest.observedAt).getTime() ? r : latest),
         persistedRecords[0]
       );
 
       return {
         synced: true,
-        isInitialBackfill: true,
+        isInitialBackfill: isInitialSync,
         recordsSynced: persistedRecords.length,
         source: current.source,
         record: this.formatRecord(latestRecord),
       };
     } else {
       // -----------------------------------------------------------------------
-      // Subsequent Sync: Fetch current weather only
+      // Fresh Subsequent Sync: Fetch current weather only
       // -----------------------------------------------------------------------
-      const current = await this.weatherProvider.fetchCurrentWeather(latitude, longitude);
       const persistedRecord = await this.weatherRepo.upsert(farmId, current);
 
       return {

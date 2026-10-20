@@ -303,6 +303,83 @@ async function runWeatherServiceUnitTests() {
   assert(weatherProvider.hourlyCalls.length === 0, '3.6 Hourly weather provider was NOT called during subsequent sync');
 
   // ---------------------------------------------------------------------------
+  // 3B. Stale Subsequent Sync (> 1 hour old triggers hourly backfill)
+  // ---------------------------------------------------------------------------
+  const staleFarmId = '3fa85f64-5717-4562-b3fc-2c963f66afb7';
+  farmRepo.farms.set(staleFarmId, { ...sampleFarm, id: staleFarmId });
+  boundaryRepo.boundaries.set(staleFarmId, { ...sampleBoundary, id: 'b0000000-0000-0000-0000-000000000002', farmId: staleFarmId });
+
+  // Seed stale farm with an old observation from 10 hours ago
+  const oldObservationTime = new Date('2026-09-22T08:00:00Z');
+  await weatherRepo.upsert(staleFarmId, {
+    observedAt: oldObservationTime,
+    latitude: 18.5204,
+    longitude: 73.8567,
+    temperatureC: 22.0,
+    humidityPercent: 70,
+    rainfallMm: 0,
+    windSpeedKmh: 8,
+    windGustKmh: 12,
+    weatherCode: 0,
+    source: 'Open-Meteo',
+  });
+
+  weatherProvider.currentCalls = [];
+  weatherProvider.hourlyCalls = [];
+
+  const staleTime = new Date('2026-09-22T18:00:00Z'); // 10 hours after 08:00
+  weatherProvider.mockCurrent = {
+    observedAt: staleTime,
+    latitude: 18.5204,
+    longitude: 73.8567,
+    temperatureC: 31.0,
+    humidityPercent: 50,
+    rainfallMm: 0,
+    windSpeedKmh: 14,
+    windGustKmh: 20,
+    weatherCode: 1,
+    source: 'Open-Meteo',
+  };
+  weatherProvider.mockHourly = [];
+  for (let i = 24; i >= 1; i--) {
+    weatherProvider.mockHourly.push({
+      observedAt: new Date(staleTime.getTime() - i * 3600 * 1000),
+      latitude: 18.5204,
+      longitude: 73.8567,
+      temperatureC: 25,
+      humidityPercent: 60,
+      rainfallMm: 0.5,
+      windSpeedKmh: 10,
+      windGustKmh: 15,
+      weatherCode: 1,
+      source: 'Open-Meteo',
+    });
+  }
+
+  const staleSyncResult = await service.syncWeather(staleFarmId);
+  assert(staleSyncResult.synced === true, '3B.1 Stale sync reports synced: true');
+  assert(staleSyncResult.isInitialBackfill === false, '3B.2 Stale sync sets isInitialBackfill: false');
+  assert(staleSyncResult.recordsSynced === 25, `3B.3 Stale sync recordsSynced reflects backfilled records (got ${staleSyncResult.recordsSynced})`);
+  assert(weatherProvider.hourlyCalls.length === 1, '3B.4 Hourly weather provider called to backfill missing hours');
+  assert(weatherProvider.currentCalls.length === 1, '3B.5 Current weather provider called during stale sync');
+
+  // Reset provider state and mockCurrent for subsequent tests on sampleFarmId
+  weatherProvider.currentCalls = [];
+  weatherProvider.hourlyCalls = [];
+  weatherProvider.mockCurrent = {
+    observedAt: nextTime,
+    latitude: 18.5204,
+    longitude: 73.8567,
+    temperatureC: 30.2,
+    humidityPercent: 52,
+    rainfallMm: 0,
+    windSpeedKmh: 16,
+    windGustKmh: 24,
+    weatherCode: 1,
+    source: 'Open-Meteo',
+  };
+
+  // ---------------------------------------------------------------------------
   // 4. Idempotency on Repeated Synchronization
   // ---------------------------------------------------------------------------
   const countBefore = await weatherRepo.countByFarmId(sampleFarmId);

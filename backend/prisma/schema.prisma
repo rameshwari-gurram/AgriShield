@@ -46,6 +46,7 @@ model Farmer {
 
   // Relationships
   farms                 Farm[]
+  policies              Policy[]
 
   @@index([farmerReferenceNumber])
   @@map("farmers")
@@ -78,6 +79,7 @@ model Farm {
   satelliteObservations SatelliteObservation[]
   ndviObservations      NdviObservation[]
   mlRiskPredictions     MlRiskPrediction[]
+  policies              Policy[]
 
   @@index([farmerId])
   @@index([cropName])
@@ -201,6 +203,7 @@ model RiskAssessment {
   // Relationships
   farm               Farm            @relation(fields: [farmId], references: [id], onDelete: Cascade)
   riskEvents         RiskEvent[]
+  claims             Claim[]
 
   @@index([farmId, assessedAt(sort: Desc)])
   @@index([overallRisk])
@@ -223,6 +226,7 @@ model RiskEvent {
   // Relationships
   assessment     RiskAssessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
   riskRule       RiskRule       @relation(fields: [riskRuleId], references: [id], onDelete: Restrict)
+  claims         Claim[]
 
   @@index([assessmentId])
   @@index([riskRuleId])
@@ -304,4 +308,83 @@ model MlRiskPrediction {
   @@index([farmId, inputFingerprint])
   @@index([assessedAt])
   @@map("ml_risk_predictions")
+}
+
+// ============================================================================
+// Module 9: Parametric Underwriting, Policy & Automated Claims Domain
+// ============================================================================
+
+enum PolicyStatus {
+  PENDING
+  ACTIVE
+  EXPIRED
+  EXHAUSTED
+  CANCELLED
+}
+
+enum ClaimStatus {
+  PENDING
+  APPROVED
+  PAID
+  REJECTED
+}
+
+model Policy {
+  id                   String           @id @default(uuid()) @db.Uuid
+  policyNumber         String           @unique @db.VarChar(50)
+  farmId               String           @db.Uuid
+  farmerId             String           @db.Uuid
+  cropName             String           @db.VarChar(100)
+  sumInsured           Decimal          @db.Decimal(12, 2)
+  premiumAmount        Decimal          @db.Decimal(12, 2)
+  coveredHazards       RiskHazardType[]
+  startDate            DateTime         @db.Timestamptz(6)
+  endDate              DateTime         @db.Timestamptz(6)
+  cumulativePaidAmount Decimal          @default(0.00) @db.Decimal(12, 2)
+  status               PolicyStatus     @default(PENDING)
+  createdAt            DateTime         @default(now()) @db.Timestamptz(6)
+  updatedAt            DateTime         @updatedAt @db.Timestamptz(6)
+
+  // Relationships
+  farm                 Farm             @relation(fields: [farmId], references: [id], onDelete: Restrict)
+  farmer               Farmer           @relation(fields: [farmerId], references: [id], onDelete: Restrict)
+  claims               Claim[]
+
+  @@index([farmId, status])
+  @@index([farmerId])
+  @@index([status])
+  @@index([startDate, endDate])
+  @@map("policies")
+}
+
+model Claim {
+  id               String         @id @default(uuid()) @db.Uuid
+  claimNumber      String         @unique @db.VarChar(50)
+  policyId         String         @db.Uuid
+  assessmentId     String         @db.Uuid
+  riskEventId      String         @db.Uuid
+  triggerRuleCode  String         @db.VarChar(50)
+  severity         RiskSeverity
+  observedValue    Decimal?       @db.Decimal(10, 2)
+  thresholdValue   Decimal        @db.Decimal(10, 2)
+  payoutAmount     Decimal        @db.Decimal(12, 2)
+  status           ClaimStatus    @default(PENDING)
+  rejectionReason  String?        @db.Text
+  payoutReference  String?        @db.VarChar(100)
+  paidAt           DateTime?      @db.Timestamptz(6)
+  createdAt        DateTime       @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime       @updatedAt @db.Timestamptz(6)
+
+  // Relationships
+  policy           Policy         @relation(fields: [policyId], references: [id], onDelete: Restrict)
+  assessment       RiskAssessment @relation(fields: [assessmentId], references: [id], onDelete: Restrict)
+  riskEvent        RiskEvent      @relation(fields: [riskEventId], references: [id], onDelete: Restrict)
+
+  // Database-level duplicate-claim protection: a policy can have at most one claim per RiskEvent
+  @@unique([policyId, riskEventId], name: "policy_risk_event_unique")
+  @@index([policyId, createdAt(sort: Desc)])
+  @@index([assessmentId])
+  @@index([riskEventId])
+  @@index([status])
+  @@map("claims")
 }

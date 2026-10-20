@@ -114,19 +114,42 @@ export class WeatherAggregationService {
     const observationStart = new Date(windowRecords[0].observedAt);
     const observationEnd = new Date(windowRecords[recordCount - 1].observedAt);
 
-    // 5. Calculate 24-Hour Rainfall Total (sum of hourly precipitation)
-    const totalRainfall = windowRecords.reduce((acc, r) => {
+    // 5. Hourly Boundary Alignment & Hourly Precipitation Window
+    // Accommodates the standard Open-Meteo pattern where the latest record may be a sub-hourly
+    // current observation (e.g., 19:30 or 19:15) while historical precipitation records are hourly.
+    // Anchors 24-hour completeness check to the latest complete hourly boundary at or before targetEndMs.
+    const isHourlyBoundary = (t: number) => t % ONE_HOUR_MS === 0;
+
+    const hourlyTargetEndMs = targetEndMs % ONE_HOUR_MS === 0
+      ? targetEndMs
+      : Math.floor(targetEndMs / ONE_HOUR_MS) * ONE_HOUR_MS;
+    const hourlyWindowStartMs = hourlyTargetEndMs - TWENTY_FOUR_HOURS_MS;
+
+    const hourlyRecords = sortedUnique.filter((r) => {
+      const t = new Date(r.observedAt).getTime();
+      return isHourlyBoundary(t) && t > hourlyWindowStartMs && t <= hourlyTargetEndMs;
+    });
+
+    // 24-hour rainfall total is calculated exclusively from valid hourly-boundary observations
+    const rainfallRecords = hourlyRecords;
+
+    // 6. Calculate 24-Hour Rainfall Total (sum of hourly precipitation records)
+    const totalRainfall = rainfallRecords.reduce((acc, r) => {
       const val = Number(r.rainfallMm);
       return acc + (Number.isFinite(val) ? val : 0);
     }, 0);
     const totalRainfall24h = roundToTwoDecimals(totalRainfall);
 
-    // 6. Check for Complete 24-Hour Continuous Window
-    // Requires exactly 24 consecutive hourly observations ending at targetEndMs, each separated by 1 hour.
+    // 7. Check for Complete 24-Hour Continuous Window
+    // When 24 consecutive hourly precipitation records exist spanning the 24 hours preceding
+    // that hourly boundary, mark complete24hWindow = true.
     let complete24hWindow = false;
-    if (recordCount >= 24) {
-      const last24 = windowRecords.slice(-24);
-      const endsAtTarget = new Date(last24[23].observedAt).getTime() === targetEndMs;
+    const candidate24h = hourlyRecords;
+    const targetFor24h = hourlyTargetEndMs;
+
+    if (candidate24h.length >= 24) {
+      const last24 = candidate24h.slice(-24);
+      const endsAtTarget = new Date(last24[23].observedAt).getTime() === targetFor24h;
       let allContinuous = endsAtTarget;
 
       for (let i = 1; i < 24; i++) {
@@ -140,23 +163,26 @@ export class WeatherAggregationService {
       complete24hWindow = allContinuous;
     }
 
-    // 7. Calculate Rolling 3-Hour Maximum Rainfall
-    // A 3-hour window is valid only when formed by 3 consecutive hours: t1 - t0 === 1h && t2 - t1 === 1h
+    // 8. Calculate Rolling 3-Hour Maximum Rainfall
+    // Evaluates consecutive hourly records strictly
     let maxRolling3h = 0;
     let threeHourWindowEnd: Date | null = null;
     let complete3hWindow = false;
 
-    if (recordCount >= 3) {
-      for (let i = 0; i <= recordCount - 3; i++) {
-        const t0 = new Date(windowRecords[i].observedAt).getTime();
-        const t1 = new Date(windowRecords[i + 1].observedAt).getTime();
-        const t2 = new Date(windowRecords[i + 2].observedAt).getTime();
+    const candidate3h = hourlyRecords;
+    const count3h = candidate3h.length;
+
+    if (count3h >= 3) {
+      for (let i = 0; i <= count3h - 3; i++) {
+        const t0 = new Date(candidate3h[i].observedAt).getTime();
+        const t1 = new Date(candidate3h[i + 1].observedAt).getTime();
+        const t2 = new Date(candidate3h[i + 2].observedAt).getTime();
 
         if (t1 - t0 === ONE_HOUR_MS && t2 - t1 === ONE_HOUR_MS) {
           complete3hWindow = true;
-          const r0 = Number(windowRecords[i].rainfallMm);
-          const r1 = Number(windowRecords[i + 1].rainfallMm);
-          const r2 = Number(windowRecords[i + 2].rainfallMm);
+          const r0 = Number(candidate3h[i].rainfallMm);
+          const r1 = Number(candidate3h[i + 1].rainfallMm);
+          const r2 = Number(candidate3h[i + 2].rainfallMm);
 
           const sum3h = roundToTwoDecimals(
             (Number.isFinite(r0) ? r0 : 0) +

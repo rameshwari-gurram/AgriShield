@@ -8,12 +8,17 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "npx tsx tests/riskAssessment.frontend.test.tsx && npx tsx tests/riskPortfolio.frontend.test.tsx && npx tsx tests/riskStage6.frontend.test.tsx && npx tsx tests/satellite.frontend.test.tsx && npx tsx tests/mlRisk.frontend.test.tsx",
+    "test": "npx tsx tests/riskAssessment.frontend.test.tsx && npx tsx tests/riskPortfolio.frontend.test.tsx && npx tsx tests/riskStage6.frontend.test.tsx && npx tsx tests/satellite.frontend.test.tsx && npx tsx tests/mlRisk.frontend.test.tsx && npx tsx tests/policyClaim.frontend.test.tsx && npx tsx tests/docs.frontend.test.tsx && npx tsx tests/authModal.frontend.test.tsx && npx tsx tests/portfolio.frontend.test.tsx && npx tsx tests/assessmentClaimEvaluation.frontend.test.tsx",
     "test:risk:frontend": "npx tsx tests/riskAssessment.frontend.test.tsx",
     "test:risk:portfolio": "npx tsx tests/riskPortfolio.frontend.test.tsx",
     "test:risk:stage6": "npx tsx tests/riskStage6.frontend.test.tsx",
     "test:satellite:frontend": "npx tsx tests/satellite.frontend.test.tsx",
-    "test:mlrisk:frontend": "npx tsx tests/mlRisk.frontend.test.tsx"
+    "test:mlrisk:frontend": "npx tsx tests/mlRisk.frontend.test.tsx",
+    "test:policy:frontend": "npx tsx tests/policyClaim.frontend.test.tsx",
+    "test:docs:frontend": "npx tsx tests/docs.frontend.test.tsx",
+    "test:auth:frontend": "npx tsx tests/authModal.frontend.test.tsx",
+    "test:portfolio:frontend": "npx tsx tests/portfolio.frontend.test.tsx",
+    "test:claim:eval": "npx tsx tests/assessmentClaimEvaluation.frontend.test.tsx"
   },
   "dependencies": {
     "axios": "^1.7.2",
