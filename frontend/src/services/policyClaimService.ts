@@ -16,6 +16,7 @@ import { apiClient } from './api';
 import { farmService } from './farmService';
 import {
   ApiResponse,
+  Farm,
   Policy,
   Claim,
   PolicyWithFarm,
@@ -320,6 +321,90 @@ export const policyClaimService = {
       config
     );
     return response.data;
+  },
+
+  /**
+   * Explicitly activate and issue a PENDING policy.
+   * Calls POST /api/v1/policies/:id/issue (Admin only)
+   */
+  async issuePolicy(policyId: string): Promise<ApiResponse<Policy>> {
+    const response = await apiClient.post<ApiResponse<Policy>>(`/policies/${policyId}/issue`);
+    return response.data;
+  },
+
+  /**
+   * Approve a PENDING claim.
+   * Calls POST /api/v1/claims/:id/approve (Admin only)
+   */
+  async approveClaim(claimId: string): Promise<ApiResponse<Claim>> {
+    const response = await apiClient.post<ApiResponse<Claim>>(`/claims/${claimId}/approve`);
+    return response.data;
+  },
+
+  /**
+   * Reject a claim with an explicit reason.
+   * Calls POST /api/v1/claims/:id/reject (Admin only)
+   */
+  async rejectClaim(claimId: string, reason: string): Promise<ApiResponse<Claim>> {
+    const response = await apiClient.post<ApiResponse<Claim>>(`/claims/${claimId}/reject`, {
+      reason,
+    });
+    return response.data;
+  },
+
+  /**
+   * Execute simulated parametric claim settlement in transaction.
+   * Calls POST /api/v1/claims/:id/settle (Admin only)
+   */
+  async settleClaim(
+    claimId: string,
+    simulatedTransactionId?: string
+  ): Promise<ApiResponse<Claim>> {
+    const response = await apiClient.post<ApiResponse<Claim>>(
+      `/claims/${claimId}/settle`,
+      simulatedTransactionId ? { simulatedTransactionId } : {}
+    );
+    return response.data;
+  },
+
+  /**
+   * Retrieve all policies across a list of farms.
+   */
+  async getPoliciesForFarms(farms: Farm[]): Promise<PolicyWithFarm[]> {
+    if (!farms || farms.length === 0) return [];
+    const results = await Promise.allSettled(
+      farms.map((f) => policyClaimService.getFarmPolicies(f.id))
+    );
+    const aggregated: PolicyWithFarm[] = [];
+    results.forEach((r, idx) => {
+      if (r.status === 'fulfilled' && r.value?.data) {
+        const farm = farms[idx];
+        r.value.data.forEach((pol) => {
+          aggregated.push({ ...pol, farm });
+        });
+      }
+    });
+    return aggregated;
+  },
+
+  /**
+   * Retrieve all claims across a list of farms.
+   */
+  async getClaimsForFarms(farms: Farm[]): Promise<ClaimWithFarm[]> {
+    if (!farms || farms.length === 0) return [];
+    const results = await Promise.allSettled(
+      farms.map((f) => policyClaimService.getFarmClaims(f.id))
+    );
+    const aggregated: ClaimWithFarm[] = [];
+    results.forEach((r, idx) => {
+      if (r.status === 'fulfilled' && r.value?.data) {
+        const farm = farms[idx];
+        r.value.data.forEach((clm) => {
+          aggregated.push({ ...clm, farm });
+        });
+      }
+    });
+    return aggregated;
   },
 };
 

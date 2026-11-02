@@ -345,7 +345,9 @@ async function runTestSuite() {
   {
     const fs = await import('fs');
     const path = await import('path');
-    const pagePath = path.resolve('src/pages/farms/FarmDetailPage.tsx');
+    const getPath = (p: string) =>
+      fs.existsSync(path.resolve(p)) ? path.resolve(p) : path.resolve('frontend', p);
+    const pagePath = getPath('src/pages/farms/FarmDetailPage.tsx');
     const pageContent = fs.readFileSync(pagePath, 'utf-8');
 
     assert(
@@ -371,23 +373,27 @@ async function runTestSuite() {
   {
     const fs = await import('fs');
     const path = await import('path');
+    const getPath = (p: string) =>
+      fs.existsSync(path.resolve(p)) ? path.resolve(p) : path.resolve('frontend', p);
 
-    const badge1 = fs.readFileSync(path.resolve('src/components/policy/PolicyStatusBadge.tsx'), 'utf-8');
-    const badge2 = fs.readFileSync(path.resolve('src/components/policy/ClaimStatusBadge.tsx'), 'utf-8');
-    const card = fs.readFileSync(path.resolve('src/components/policy/PolicyCard.tsx'), 'utf-8');
-    const table = fs.readFileSync(path.resolve('src/components/policy/ClaimHistoryTable.tsx'), 'utf-8');
-    const modal = fs.readFileSync(path.resolve('src/components/policy/ClaimAuditModal.tsx'), 'utf-8');
-    const section = fs.readFileSync(path.resolve('src/components/policy/FarmPolicyClaimsSection.tsx'), 'utf-8');
-    const service = fs.readFileSync(path.resolve('src/services/policyClaimService.ts'), 'utf-8');
+    const badge1 = fs.readFileSync(getPath('src/components/policy/PolicyStatusBadge.tsx'), 'utf-8');
+    const badge2 = fs.readFileSync(getPath('src/components/policy/ClaimStatusBadge.tsx'), 'utf-8');
+    const card = fs.readFileSync(getPath('src/components/policy/PolicyCard.tsx'), 'utf-8');
+    const table = fs.readFileSync(getPath('src/components/policy/ClaimHistoryTable.tsx'), 'utf-8');
+    const modal = fs.readFileSync(getPath('src/components/policy/ClaimAuditModal.tsx'), 'utf-8');
+    const section = fs.readFileSync(getPath('src/components/policy/FarmPolicyClaimsSection.tsx'), 'utf-8');
+    const service = fs.readFileSync(getPath('src/services/policyClaimService.ts'), 'utf-8');
 
-    const combinedModule9Frontend = badge1 + badge2 + card + table + modal + section + service;
+    const farmerUiComponents = badge1 + badge2 + card + table + modal + section;
+    const combinedModule9Frontend = farmerUiComponents + service;
 
     // 6.1 No farmer-facing adjudication buttons
     assert(!combinedModule9Frontend.includes('Approve Claim'), '6.1 Zero "Approve Claim" button in farmer UI');
     assert(!combinedModule9Frontend.includes('Reject Claim'), '6.2 Zero "Reject Claim" button in farmer UI');
     assert(!combinedModule9Frontend.includes('Settle Claim'), '6.3 Zero "Settle Claim" button in farmer UI');
     assert(!combinedModule9Frontend.includes('evaluateClaim'), '6.4 Zero claim evaluation mutation in frontend service');
-    assert(!combinedModule9Frontend.includes('settleClaim'), '6.5 Zero claim settlement mutation in frontend service');
+    assert(!farmerUiComponents.includes('settleClaim'), '6.5 Zero claim settlement mutation in farmer UI components');
+    assert(service.includes('settleClaim'), '6.5b Admin claim settlement method preserved in shared policyClaimService');
 
     // 6.2 Module 8 decoupling
     assert(!combinedModule9Frontend.includes('mlRiskService'), '6.6 Zero reference to mlRiskService');

@@ -7,7 +7,7 @@
 
 import { Router } from 'express';
 import { policyController } from '../../controllers/policy.controller.js';
-import { authenticateJwt } from '../../middleware/auth.middleware.js';
+import { authenticateJwt, requireAdmin } from '../../middleware/auth.middleware.js';
 import { authorizeFarmAccess } from '../../middleware/farmOwnership.middleware.js';
 import {
   validateBody,
@@ -64,11 +64,12 @@ policyRouter.get(
 /**
  * @route   POST /api/v1/policies/:id/issue
  * @desc    Explicitly activate and issue a PENDING policy
- * @access  Protected (Requires Bearer JWT)
+ * @access  Protected (Requires Bearer JWT with ADMIN role)
  */
 policyRouter.post(
   '/:id/issue',
   authenticateJwt,
+  requireAdmin,
   validateParams(policyIdParamSchema),
   policyController.issuePolicy.bind(policyController)
 );

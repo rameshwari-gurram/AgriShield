@@ -47,9 +47,17 @@ export class PolicyController {
    */
   async createPolicy(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      // Object-level authorization: caller must be the farmer identified in the payload
-      if (req.user && req.body.farmerId && req.body.farmerId !== req.user.id) {
-        throw AppError.forbidden('Access denied: You cannot create a policy for another farmer');
+      // Object-level authorization: non-admin caller must match the farmer identified in payload
+      if (req.user && req.user.role !== 'ADMIN') {
+        if (req.body.farmerId && req.body.farmerId !== req.user.id) {
+          throw AppError.forbidden('Access denied: You cannot create a policy for another farmer');
+        }
+        if (req.body.farmId) {
+          const farm = await this.farmRepo.findById(req.body.farmId);
+          if (farm && farm.farmerId !== req.user.id) {
+            throw AppError.forbidden("Access denied: You cannot create a policy for another farmer's farm");
+          }
+        }
       }
 
       const result = await this.service.createPolicy(req.body);
@@ -64,14 +72,14 @@ export class PolicyController {
   /**
    * GET /api/v1/policies/:id
    * Retrieves policy details by UUID.
-   * Enforces that the authenticated caller owns the policy.
+   * Enforces that the authenticated caller owns the policy or has ADMIN role.
    */
   async getPolicyById(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const result = await this.service.getPolicyById(req.params.id);
 
-      // Object-level authorization: caller must be the policy owner
-      if (req.user && result.farmerId !== req.user.id) {
+      // Object-level authorization: caller must be ADMIN or the policy owner
+      if (req.user && req.user.role !== 'ADMIN' && result.farmerId !== req.user.id) {
         throw AppError.forbidden('Access denied: You do not have permission to access this policy');
       }
 
@@ -86,14 +94,12 @@ export class PolicyController {
   /**
    * POST /api/v1/policies/:id/issue
    * Explicitly activates and issues a PENDING policy.
-   * Enforces that only the policy owner may trigger policy activation.
+   * Strictly restricted to ADMIN role.
    */
   async issuePolicy(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      // 1. Verify policy existence and caller ownership prior to mutation
-      const existing = await this.service.getPolicyById(req.params.id);
-      if (req.user && existing.farmerId !== req.user.id) {
-        throw AppError.forbidden('Access denied: You do not have permission to issue this policy');
+      if (req.user?.role !== 'ADMIN') {
+        throw AppError.forbidden('Access denied: Admin role required to issue policies');
       }
 
       const result = await this.service.issuePolicy(req.params.id);
@@ -108,18 +114,18 @@ export class PolicyController {
   /**
    * GET /api/v1/policies?farmId=<uuid>
    * Queries policies, optionally filtered by farm parcel ID.
-   * Enforces that the authenticated caller owns the queried farm parcel.
+   * Enforces that the authenticated caller owns the queried farm parcel or is ADMIN.
    */
   async getPolicies(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const farmId = req.query.farmId as string | undefined;
       if (farmId) {
-        // Object-level authorization: caller must own the queried farm parcel
+        // Object-level authorization: caller must own the queried farm parcel or be ADMIN
         const farm = await this.farmRepo.findById(farmId);
         if (!farm) {
           throw AppError.notFound(`Farm with ID '${farmId}' not found`);
         }
-        if (req.user && farm.farmerId !== req.user.id) {
+        if (req.user && req.user.role !== 'ADMIN' && farm.farmerId !== req.user.id) {
           throw AppError.forbidden(`Access denied: You do not have permission to access farm '${farmId}'`);
         }
 

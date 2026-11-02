@@ -10,6 +10,7 @@ import {
   Compass,
   AlertCircle,
 } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
 import { farmService } from '../../services/farmService';
 import { farmBoundaryService } from '../../services/farmBoundaryService';
 import { Farm, FarmBoundary } from '../../types';
@@ -17,6 +18,9 @@ import { FarmWeatherSection } from '../../components/weather/FarmWeatherSection'
 import { LoadingSpinner } from '../../components/LoadingSpinner';
 
 export const WeatherOverviewPage: React.FC = () => {
+  const { user, isFarmer, isAdmin, isAuthenticated, activeProducer } = useAuth();
+  const farmerId = user?.id || activeProducer?.id;
+
   const [farms, setFarms] = useState<Farm[]>([]);
   const [selectedFarmId, setSelectedFarmId] = useState<string>('');
   const [selectedFarmBoundary, setSelectedFarmBoundary] = useState<FarmBoundary | null>(null);
@@ -24,15 +28,30 @@ export const WeatherOverviewPage: React.FC = () => {
   const [loadingBoundary, setLoadingBoundary] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch active farms list
+  // Fetch active farms list (role-scoped)
   const fetchFarms = useCallback(async () => {
+    if (!isAuthenticated) {
+      setLoading(false);
+      return;
+    }
+
     try {
       setLoading(true);
       setError(null);
-      const res = await farmService.getFarms({ limit: 100 });
-      const activeFarms = res.data.farms.filter((f) => f.status === 'ACTIVE');
+
+      let activeFarms: Farm[] = [];
+      if (isFarmer && farmerId) {
+        const res = await farmService.getFarmsByFarmerId(farmerId);
+        const rawFarms = res.data || [];
+        activeFarms = rawFarms.filter((f) => f.status === 'ACTIVE');
+      } else if (isAdmin) {
+        const res = await farmService.getFarms({ limit: 100 });
+        const rawFarms = res.data?.farms || [];
+        activeFarms = rawFarms.filter((f) => f.status === 'ACTIVE');
+      }
+
       setFarms(activeFarms);
-      if (activeFarms.length > 0 && !selectedFarmId) {
+      if (activeFarms.length > 0 && (!selectedFarmId || !activeFarms.some((f) => f.id === selectedFarmId))) {
         setSelectedFarmId(activeFarms[0].id);
       }
     } catch (err: unknown) {
@@ -41,7 +60,7 @@ export const WeatherOverviewPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [selectedFarmId]);
+  }, [isAuthenticated, isFarmer, isAdmin, farmerId, selectedFarmId]);
 
   useEffect(() => {
     fetchFarms();

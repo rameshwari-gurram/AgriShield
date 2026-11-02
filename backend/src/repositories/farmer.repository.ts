@@ -1,6 +1,7 @@
-import { PrismaClient, Farmer, Language } from '@prisma/client';
+import { PrismaClient, Prisma, Farmer, Language } from '@prisma/client';
 import { prisma } from '../config/db.js';
 import { IFarmerRepository } from '../types/farmer.types.js';
+import { AppError } from '../utils/apiError.js';
 
 export class FarmerRepository implements IFarmerRepository {
   private db: PrismaClient;
@@ -12,6 +13,7 @@ export class FarmerRepository implements IFarmerRepository {
   async create(data: {
     fullName: string;
     mobileNumber: string;
+    email?: string | null;
     preferredLanguage: Language;
     farmerReferenceNumber?: string | null;
   }): Promise<Farmer> {
@@ -19,6 +21,7 @@ export class FarmerRepository implements IFarmerRepository {
       data: {
         fullName: data.fullName,
         mobileNumber: data.mobileNumber,
+        email: data.email || null,
         preferredLanguage: data.preferredLanguage,
         farmerReferenceNumber: data.farmerReferenceNumber || null,
       },
@@ -37,10 +40,35 @@ export class FarmerRepository implements IFarmerRepository {
     });
   }
 
+  async findByEmail(email: string): Promise<Farmer | null> {
+    return this.db.farmer.findUnique({
+      where: { email },
+    });
+  }
+
   async findByReferenceNumber(farmerReferenceNumber: string): Promise<Farmer | null> {
     return this.db.farmer.findUnique({
       where: { farmerReferenceNumber },
     });
+  }
+
+  async updateEmail(id: string, email: string): Promise<Farmer> {
+    try {
+      return await this.db.farmer.update({
+        where: { id },
+        data: { email },
+      });
+    } catch (err: unknown) {
+      if (
+        (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') ||
+        (err as any)?.code === 'P2002'
+      ) {
+        throw AppError.conflict(
+          'This email address is already associated with another producer account.'
+        );
+      }
+      throw err;
+    }
   }
 
   async findAll(options: {
@@ -56,6 +84,7 @@ export class FarmerRepository implements IFarmerRepository {
             OR: [
               { fullName: { contains: search, mode: 'insensitive' } },
               { mobileNumber: { contains: search } },
+              { email: { contains: search, mode: 'insensitive' } },
               { farmerReferenceNumber: { contains: search, mode: 'insensitive' } },
             ],
           }
@@ -73,6 +102,7 @@ export class FarmerRepository implements IFarmerRepository {
             OR: [
               { fullName: { contains: search, mode: 'insensitive' } },
               { mobileNumber: { contains: search } },
+              { email: { contains: search, mode: 'insensitive' } },
               { farmerReferenceNumber: { contains: search, mode: 'insensitive' } },
             ],
           }

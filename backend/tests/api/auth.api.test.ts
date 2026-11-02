@@ -2,11 +2,13 @@
  * AgriShield Module 8/9: Auth OTP REST API Integration & Cross-Farmer Access Test Suite
  *
  * Verifies live Express HTTP dispatch:
- * 1. POST /api/v1/auth/otp/send (Validation, Rate Limiting, Non-enumerating)
+ * 1. POST /api/v1/auth/otp/send (Validation, Rate Limiting, Non-enumerating for mobile & email)
  * 2. POST /api/v1/auth/otp/verify (Validation, Attempts counter, JWT issuance)
  * 3. Cross-Farmer BOLA/IDOR Integration:
  *    - Valid OTP token for Farmer A grants access to Farm A's ML Risk, Policies & Claims
  *    - Valid OTP token for Farmer B is strictly REJECTED with HTTP 403 Forbidden on Farm A
+ * 4. Dual-Identifier Email OTP Authentication via API
+ * 5. Safe Email Linking & Verification Endpoints
  */
 
 import http from 'http';
@@ -24,11 +26,29 @@ import { mlRiskController } from '../../src/controllers/mlRisk.controller.js';
 import { IPolicyRepository } from '../../src/types/policy.types.js';
 import { IClaimRepository } from '../../src/types/claim.types.js';
 import { Prisma } from '@prisma/client';
+import { IEmailProvider, SendOtpEmailOptions, EmailSendResult } from '../../src/providers/email.provider.js';
 
 const FARMER_A_ID = '11111111-1111-4111-8111-111111111111';
 const FARMER_B_ID = '22222222-2222-4222-8222-222222222222';
 const FARM_A_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const FARM_B_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+
+class MockEmailProvider implements IEmailProvider {
+  public sentEmails: Array<{ to: string; otp: string; recipientName?: string }> = [];
+  public shouldFail: boolean = false;
+
+  async sendOtpEmail(options: SendOtpEmailOptions): Promise<EmailSendResult> {
+    if (this.shouldFail) {
+      return { success: false, error: 'SMTP delivery timeout' };
+    }
+    this.sentEmails.push(options);
+    return { success: true, messageId: `mock-msg-${Date.now()}` };
+  }
+
+  async verifyConnection(): Promise<boolean> {
+    return !this.shouldFail;
+  }
+}
 
 class MockFarmerRepository implements IFarmerRepository {
   public farmers: Farmer[] = [
@@ -36,6 +56,7 @@ class MockFarmerRepository implements IFarmerRepository {
       id: FARMER_A_ID,
       fullName: 'Anand Shinde',
       mobileNumber: '9876543210',
+      email: 'anand.shinde@agrishield.com',
       preferredLanguage: Language.mr,
       farmerReferenceNumber: 'AGRI-FMR-DEMO-STAGE96',
       createdAt: new Date('2026-10-14T10:00:00.000Z'),
@@ -45,6 +66,7 @@ class MockFarmerRepository implements IFarmerRepository {
       id: FARMER_B_ID,
       fullName: 'Sunita Patil',
       mobileNumber: '9123456780',
+      email: 'sunita.patil@agrishield.com',
       preferredLanguage: Language.en,
       farmerReferenceNumber: 'AGRI-FMR-DEMO-02',
       createdAt: new Date('2026-10-14T10:00:00.000Z'),
@@ -55,11 +77,20 @@ class MockFarmerRepository implements IFarmerRepository {
   async findByMobileNumber(mobileNumber: string): Promise<Farmer | null> {
     return this.farmers.find((f) => f.mobileNumber === mobileNumber) || null;
   }
+  async findByEmail(email: string): Promise<Farmer | null> {
+    return this.farmers.find((f) => f.email?.toLowerCase() === email.toLowerCase()) || null;
+  }
   async findById(id: string): Promise<Farmer | null> {
     return this.farmers.find((f) => f.id === id) || null;
   }
   async findByReferenceNumber(ref: string): Promise<Farmer | null> {
     return this.farmers.find((f) => f.farmerReferenceNumber === ref) || null;
+  }
+  async updateEmail(id: string, email: string): Promise<Farmer> {
+    const f = this.farmers.find((farmer) => farmer.id === id);
+    if (!f) throw new Error(`Farmer ${id} not found`);
+    f.email = email;
+    return f;
   }
   async create(data: any): Promise<Farmer> {
     this.farmers.push(data);
@@ -73,7 +104,7 @@ class MockFarmerRepository implements IFarmerRepository {
   }
 }
 
-class MockFarmRepository implements IFarmRepository {
+class MockFarmRepository implements IFarmerRepository {
   public farms: Farm[] = [
     {
       id: FARM_A_ID,
@@ -84,7 +115,7 @@ class MockFarmRepository implements IFarmRepository {
       cropVariety: 'Co 86032',
       sowingDate: new Date('2026-06-01T00:00:00.000Z'),
       expectedHarvestDate: new Date('2027-04-30T00:00:00.000Z'),
-      farmArea: 2.5,
+      farmArea: new Prisma.Decimal('2.50'),
       farmAreaUnit: AreaUnit.ACRE,
       village: 'Indapur',
       district: 'Pune',
@@ -98,12 +129,12 @@ class MockFarmRepository implements IFarmRepository {
       id: FARM_B_ID,
       farmerId: FARMER_B_ID,
       farmName: 'Baramati Cotton Parcel B',
-      farmReferenceNumber: 'FRM-DEMO-BARAMATI-01',
+      farmReferenceNumber: 'FRM-DEMO-BARAMATI-02',
       cropName: 'Cotton',
       cropVariety: 'Bt Cotton',
       sowingDate: new Date('2026-06-15T00:00:00.000Z'),
-      expectedHarvestDate: new Date('2026-12-31T00:00:00.000Z'),
-      farmArea: 3.0,
+      expectedHarvestDate: new Date('2026-12-15T00:00:00.000Z'),
+      farmArea: new Prisma.Decimal('3.00'),
       farmAreaUnit: AreaUnit.ACRE,
       village: 'Baramati',
       district: 'Pune',
@@ -118,28 +149,11 @@ class MockFarmRepository implements IFarmRepository {
   async findById(id: string): Promise<Farm | null> {
     return this.farms.find((f) => f.id === id) || null;
   }
-  async findByFarmerId(farmerId: string): Promise<Farm[]> {
-    return this.farms.filter((f) => f.farmerId === farmerId);
-  }
-  async findByReferenceNumber(ref: string): Promise<Farm | null> {
-    return this.farms.find((f) => f.farmReferenceNumber === ref) || null;
-  }
-  async create(data: any): Promise<Farm> {
-    this.farms.push(data);
-    return data;
-  }
-  async findAll(): Promise<Farm[]> {
-    return this.farms;
-  }
-  async count(): Promise<number> {
-    return this.farms.length;
-  }
-  async update(): Promise<Farm> {
-    return this.farms[0];
-  }
-  async delete(): Promise<Farm> {
-    return this.farms[0];
-  }
+  async findAll() { return []; }
+  async count() { return 0; }
+  async create(d: any) { return d; }
+  async findByMobileNumber() { return null; }
+  async findByReferenceNumber() { return null; }
 }
 
 class MockPolicyRepository implements IPolicyRepository {
@@ -223,7 +237,7 @@ async function request(
     body: body ? JSON.stringify(body) : undefined,
   });
 
-  const resBody = await res.json().catch(() => null);
+  const resBody = await res.json().catch(() => ({}));
   return { status: res.status, body: resBody };
 }
 
@@ -245,16 +259,20 @@ async function runAuthApiTests() {
     }
   };
 
-  // Wire up repositories
+  // Wire up repositories and mock email provider
   const mockFarmerRepo = new MockFarmerRepository();
   const mockFarmRepo = new MockFarmRepository();
   const mockPolicyRepo = new MockPolicyRepository();
   const mockClaimRepo = new MockClaimRepository();
+  const mockEmailProvider = new MockEmailProvider();
 
   // Inject into singletons
   (authService as any).farmerRepo = mockFarmerRepo;
+  (authService as any).emailProvider = mockEmailProvider;
   (farmRepository as any).findById = mockFarmRepo.findById.bind(mockFarmRepo);
   (farmerRepository as any).findByMobileNumber = mockFarmerRepo.findByMobileNumber.bind(mockFarmerRepo);
+  (farmerRepository as any).findByEmail = mockFarmerRepo.findByEmail.bind(mockFarmerRepo);
+  (farmerRepository as any).updateEmail = mockFarmerRepo.updateEmail.bind(mockFarmerRepo);
   (policyController as any).service.policyRepo = mockPolicyRepo;
   (claimController as any).service.claimRepo = mockClaimRepo;
 
@@ -281,7 +299,7 @@ async function runAuthApiTests() {
     authService._clearAllForTest();
 
     // -------------------------------------------------------------------------
-    // TEST 1: POST /api/v1/auth/otp/send - Validation & Non-Enumeration
+    // TEST 1: POST /api/v1/auth/otp/send - Mobile Validation & Non-Enumeration
     // -------------------------------------------------------------------------
     console.log('--- TEST 1: POST /api/v1/auth/otp/send ---');
     {
@@ -322,7 +340,6 @@ async function runAuthApiTests() {
     let farmerAToken: string = '';
     let farmerBToken: string = '';
     {
-      // Reset challenges and fix OTP for Farmer A
       authService._clearAllForTest();
       const origGen = authService.generateSixDigitOtp.bind(authService);
       authService.generateSixDigitOtp = () => '123456';
@@ -414,6 +431,142 @@ async function runAuthApiTests() {
       // 3.9 Farmer B (non-owner) accessing Farm A's Claims -> HTTP 403 Forbidden
       const resClmImposter = await request(server, 'GET', `/api/v1/farms/${FARM_A_ID}/claims`, undefined, farmerBToken);
       check(resClmImposter.status === 403, '3.9 Farmer B accessing Farm A claims strictly rejected with HTTP 403');
+    }
+
+    // -------------------------------------------------------------------------
+    // TEST 4: Dual-Identifier Email OTP Authentication via API
+    // -------------------------------------------------------------------------
+    console.log('\n--- TEST 4: Dual-Identifier Email OTP Authentication via API ---');
+    let farmerAEmailToken: string = '';
+    {
+      authService._clearAllForTest();
+      mockEmailProvider.sentEmails = [];
+
+      // 4.1 Invalid email format
+      const resBadEmail = await request(server, 'POST', '/api/v1/auth/otp/send', {
+        email: 'invalid-email-string',
+      });
+      check(resBadEmail.status === 400, '4.1 Malformed email rejected with HTTP 400');
+
+      // 4.2 Registered email send
+      const resSendEmail = await request(server, 'POST', '/api/v1/auth/otp/send', {
+        email: 'anand.shinde@agrishield.com',
+      });
+      check(resSendEmail.status === 200, '4.2 Registered email OTP send succeeds with HTTP 200');
+      check(resSendEmail.body.data.maskedIdentifier === 'a***e@agrishield.com', '4.2 Returns masked email address');
+      check(mockEmailProvider.sentEmails.length === 1, '4.2 Outbound email dispatched via provider');
+      const receivedEmailOtp = mockEmailProvider.sentEmails[0].otp;
+
+      // 4.3 Unregistered email non-enumerating
+      const resSendUnregEmail = await request(server, 'POST', '/api/v1/auth/otp/send', {
+        email: 'nobody@unregistered-domain.com',
+      });
+      check(resSendUnregEmail.status === 200, '4.3 Unregistered email returns HTTP 200 non-enumerating');
+      check(resSendUnregEmail.body.message.includes('If this email address is registered'), '4.3 Returns identical message');
+
+      // 4.4 Verify email OTP
+      const resVerifyEmail = await request(server, 'POST', '/api/v1/auth/otp/verify', {
+        email: 'anand.shinde@agrishield.com',
+        otp: receivedEmailOtp,
+      });
+      check(resVerifyEmail.status === 200, '4.4 Valid email OTP accepted with HTTP 200');
+      check(resVerifyEmail.body.data.farmer.email === 'anand.shinde@agrishield.com', '4.4 Returns farmer profile with verified email');
+      farmerAEmailToken = resVerifyEmail.body.data.token;
+
+      // 4.5 Verify email token grants access to owner farm
+      const resOwnerViaEmailToken = await request(server, 'GET', `/api/v1/farms/${FARM_A_ID}/policies`, undefined, farmerAEmailToken);
+      check(resOwnerViaEmailToken.status === 200, '4.5 Email-authenticated token successfully accesses Farm A policies');
+    }
+
+    // -------------------------------------------------------------------------
+    // TEST 5: Safe Email Association / Linking Endpoints
+    // -------------------------------------------------------------------------
+    console.log('\n--- TEST 5: Safe Email Association / Linking Endpoints ---');
+    {
+      authService._clearAllForTest();
+      mockEmailProvider.sentEmails = [];
+
+      // 5.1 Unauthenticated request-link rejected with 401
+      const resNoAuthLink = await request(server, 'POST', '/api/v1/auth/email/request-link', {
+        email: 'anand.updated@agrishield.com',
+      });
+      check(resNoAuthLink.status === 401, '5.1 Unauthenticated email link request rejected with 401');
+
+      // 5.2 Duplicate email link request rejected with 409
+      const resDupLink = await request(
+        server,
+        'POST',
+        '/api/v1/auth/email/request-link',
+        { email: 'sunita.patil@agrishield.com' },
+        farmerAToken
+      );
+      check(resDupLink.status === 409, '5.2 Duplicate email link request rejected with 409 Conflict');
+
+      // 5.3 Valid request-link dispatches OTP
+      const resValidLink = await request(
+        server,
+        'POST',
+        '/api/v1/auth/email/request-link',
+        { email: 'anand.updated@agrishield.com' },
+        farmerAToken
+      );
+      check(resValidLink.status === 200, '5.3 Valid email link request succeeds with 200');
+      check(mockEmailProvider.sentEmails.length === 1, '5.3 OTP dispatched to new target email');
+      const linkOtp = mockEmailProvider.sentEmails[0].otp;
+
+      // 5.4 Confirm with wrong OTP rejected with 400
+      const resWrongConfirm = await request(
+        server,
+        'POST',
+        '/api/v1/auth/email/confirm-link',
+        { email: 'anand.updated@agrishield.com', otp: '000000' },
+        farmerAToken
+      );
+      check(resWrongConfirm.status === 400, '5.4 Wrong OTP for email link rejected with 400');
+
+      // 5.5 Confirm with valid OTP succeeds and links email
+      const resValidConfirm = await request(
+        server,
+        'POST',
+        '/api/v1/auth/email/confirm-link',
+        { email: 'anand.updated@agrishield.com', otp: linkOtp },
+        farmerAToken
+      );
+      check(resValidConfirm.status === 200, '5.5 Confirming email link succeeds with 200');
+      check(resValidConfirm.body.data.farmer.email === 'anand.updated@agrishield.com', '5.5 Email associated with farmer profile');
+
+      // 5.6 Concurrent race condition (P2002) in API confirm-link returns HTTP 409
+      const origUpdateEmail = mockFarmerRepo.updateEmail.bind(mockFarmerRepo);
+      mockFarmerRepo.updateEmail = async () => {
+        const p2002: any = new Error('Unique constraint failed on the fields: (`email`)');
+        p2002.code = 'P2002';
+        throw p2002;
+      };
+      try {
+        await request(
+          server,
+          'POST',
+          '/api/v1/auth/email/request-link',
+          { email: 'race.test@agrishield.com' },
+          farmerAToken
+        );
+        const raceOtp = mockEmailProvider.sentEmails[mockEmailProvider.sentEmails.length - 1].otp;
+        const resRaceConfirm = await request(
+          server,
+          'POST',
+          '/api/v1/auth/email/confirm-link',
+          { email: 'race.test@agrishield.com', otp: raceOtp },
+          farmerAToken
+        );
+        check(resRaceConfirm.status === 409, '5.6 Concurrent link race (P2002) returns HTTP 409 Conflict');
+        check(
+          resRaceConfirm.body.message === 'This email address is already associated with another producer account.',
+          '5.6 Returns sanitized message'
+        );
+        check(!JSON.stringify(resRaceConfirm.body).includes('P2002'), '5.6 Zero Prisma internal error leakage');
+      } finally {
+        mockFarmerRepo.updateEmail = origUpdateEmail;
+      }
     }
 
     console.log('\n================================================================================');

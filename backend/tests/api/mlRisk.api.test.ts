@@ -4,7 +4,7 @@
  * Verifies real HTTP request dispatch on Express server:
  * - Middleware pipeline order: authenticateJwt -> validateParams -> validateQuery -> authorizeFarmAccess -> controller
  * - Farm ownership enforcement (farm.farmerId === req.user.id)
- * - Strict rejection of invented admin role bypass
+ * - Strict rejection of unauthorized/invented role bypass and verification of Admin policy
  * - Zod parameter (:farmId) and query (?forceRefresh) validation
  * - Read-through caching semantics and forced refresh bypass
  * - 17-feature snapshot and 17 SHAP attributions preservation
@@ -345,22 +345,33 @@ async function runStage83DApiTests() {
     }
 
     // --------------------------------------------------------------------------
-    console.log('\n--- TEST 9: No Invented Admin Role Bypass Audit ---');
+    console.log('\n--- TEST 9: No Invented Role Bypass & Admin Access Audit ---');
     // --------------------------------------------------------------------------
     {
-      // Attempt access with arbitrary injected role: 'ADMIN'
-      const adminToken = generateToken('arbitrary-admin-id', 'ADMIN');
+      // Attempt access with unauthorized injected role: 'STAFF'
+      const staffToken = generateToken('arbitrary-staff-id', 'STAFF');
       const res = await fetch(`${baseUrl}/api/v1/farms/${FARM_A_ID}/ml-risk`, {
-        headers: { Authorization: `Bearer ${adminToken}` },
+        headers: { Authorization: `Bearer ${staffToken}` },
       });
       const body = await res.json();
 
-      assert.equal(res.status, 403, 'Must reject with 403 because no admin bypass policy exists');
+      assert.equal(res.status, 403, 'Must reject with 403 because unauthorized role cannot bypass ownership');
       assert.match(body.message, /access denied/i);
 
-      passed += 2;
-      console.log('  ✅ PASSED: 9.1 Injected role ADMIN rejected with 403');
-      console.log('  ✅ PASSED: 9.2 Strict adherence to project policy: no invented role overrides');
+      // Verify legitimate ADMIN role has authorized access under Stage 2 policy
+      const adminToken = generateToken('arbitrary-admin-id', 'ADMIN');
+      const adminRes = await fetch(`${baseUrl}/api/v1/farms/${FARM_A_ID}/ml-risk`, {
+        headers: { Authorization: `Bearer ${adminToken}` },
+      });
+      const adminBody = await adminRes.json();
+
+      assert.equal(adminRes.status, 200, 'ADMIN role is granted global administrative access');
+      assert.equal(adminBody.success, true);
+
+      passed += 3;
+      console.log('  ✅ PASSED: 9.1 Injected role STAFF rejected with 403');
+      console.log('  ✅ PASSED: 9.2 Strict adherence to project policy: unauthorized role cannot override ownership');
+      console.log('  ✅ PASSED: 9.3 Legitimate ADMIN granted global administrative access');
     }
 
     // --------------------------------------------------------------------------

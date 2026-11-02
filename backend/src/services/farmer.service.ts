@@ -63,6 +63,7 @@ export class FarmerService {
       id: farmer.id,
       fullName: farmer.fullName,
       mobileNumber: farmer.mobileNumber,
+      email: farmer.email,
       preferredLanguage: farmer.preferredLanguage,
       farmerReferenceNumber: farmer.farmerReferenceNumber,
       createdAt: farmer.createdAt.toISOString(),

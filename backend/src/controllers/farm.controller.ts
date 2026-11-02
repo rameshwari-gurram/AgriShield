@@ -1,11 +1,16 @@
 import { Request, Response, NextFunction } from 'express';
 import { farmService, FarmService } from '../services/farm.service.js';
 import { ApiResponse } from '../utils/apiResponse.js';
+import { AppError } from '../utils/apiError.js';
 
 export class FarmController {
   private service: FarmService;
 
   constructor(service: FarmService = farmService) {
+    this.service = service;
+  }
+
+  public setService(service: FarmService): void {
     this.service = service;
   }
 
@@ -15,6 +20,19 @@ export class FarmController {
    */
   async createFarm(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
+      if (req.user?.role === 'FARMER') {
+        if (!req.user.id) {
+          throw AppError.unauthorized('Authentication required to register farm');
+        }
+        if (req.body.farmerId && req.body.farmerId !== req.user.id) {
+          throw AppError.forbidden('Access denied: You cannot register a farm for another farmer');
+        }
+        // Bind the created farm to the authenticated farmer ID on the server
+        req.body.farmerId = req.user.id;
+      } else if (req.user?.role !== 'ADMIN') {
+        throw AppError.forbidden('Access denied: requires one of the following roles: [FARMER, ADMIN]');
+      }
+
       const result = await this.service.registerFarm(req.body);
       res.status(201).json(
         ApiResponse.success(result, 'Farm registered successfully', req.correlationId)
@@ -61,6 +79,10 @@ export class FarmController {
   async getFarmerFarms(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const farmerId = req.params.farmerId || req.params.id;
+      if (req.user?.role === 'FARMER' && req.user.id !== farmerId) {
+        throw AppError.forbidden('Access denied: You do not have permission to view farms for another farmer');
+      }
+
       const result = await this.service.getFarmsByFarmerId(farmerId);
       res.status(200).json(
         ApiResponse.success(result, 'Farmer farms retrieved successfully', req.correlationId)

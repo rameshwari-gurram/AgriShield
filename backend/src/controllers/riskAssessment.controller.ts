@@ -5,13 +5,21 @@
 
 import { Request, Response, NextFunction } from 'express';
 import { riskAssessmentService, RiskAssessmentService } from '../services/riskAssessment.service.js';
+import { farmRepository } from '../repositories/farm.repository.js';
+import { IFarmRepository } from '../types/farm.types.js';
 import { ApiResponse } from '../utils/apiResponse.js';
+import { AppError } from '../utils/apiError.js';
 
 export class RiskAssessmentController {
   private service: RiskAssessmentService;
+  private farmRepo: IFarmRepository;
 
-  constructor(service: RiskAssessmentService = riskAssessmentService) {
+  constructor(
+    service: RiskAssessmentService = riskAssessmentService,
+    farmRepo: IFarmRepository = farmRepository
+  ) {
     this.service = service;
+    this.farmRepo = farmRepo;
   }
 
   /**
@@ -19,6 +27,13 @@ export class RiskAssessmentController {
    */
   public setService(service: RiskAssessmentService): void {
     this.service = service;
+  }
+
+  /**
+   * Allows swapping or injecting farm repository instance (e.g. for testing)
+   */
+  public setFarmRepo(repo: IFarmRepository): void {
+    this.farmRepo = repo;
   }
 
   /**
@@ -77,12 +92,22 @@ export class RiskAssessmentController {
   /**
    * GET /api/v1/risk-assessments/:assessmentId
    * Retrieves a single assessment by ID with populated risk events and rule definitions.
+   * Enforces that the caller owns the assessed farm parcel or has ADMIN role.
    * Returns HTTP 200 OK.
    */
   async getAssessmentById(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { assessmentId } = req.params;
       const result = await this.service.getAssessmentById(assessmentId);
+
+      // Object-level authorization: caller must be ADMIN or own the assessed farm parcel
+      if (req.user && req.user.role !== 'ADMIN') {
+        const farm = await this.farmRepo.findById(result.farmId);
+        if (!farm || farm.farmerId !== req.user.id) {
+          throw AppError.forbidden('Access denied: You do not have permission to access this risk assessment');
+        }
+      }
+
       res.status(200).json(
         ApiResponse.success(result, 'Risk assessment retrieved successfully', req.correlationId)
       );

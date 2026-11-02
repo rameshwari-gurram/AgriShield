@@ -1,10 +1,10 @@
 /**
- * Module 8: Machine Learning Risk Prediction & Explainability
- * Stage 8.3-D: Farm Ownership Authorization Middleware
+ * AgriShield Stage 2: Farm Ownership Authorization Middleware
  *
- * Verifies that the authenticated caller (req.user.id) is the verified owner (farmerId)
- * of the requested farm parcel. Rejects unauthorized access with 403 Forbidden.
- * Strictly adheres to project policy: no invented admin role or authorization bypass.
+ * Verifies that the authenticated caller has permission to access the requested farm parcel:
+ * - If role === 'ADMIN': Granted administrative access across all farm parcels.
+ * - If role === 'FARMER': Enforces strict ownership: farm.farmerId === req.user.id.
+ * Rejects unauthorized callers with 401 Unauthorized or 403 Forbidden.
  */
 
 import { Request, Response, NextFunction } from 'express';
@@ -15,14 +15,14 @@ import { AppError } from '../utils/apiError.js';
 export const createAuthorizeFarmAccess = (repo: IFarmRepository = farmRepository) => {
   return async (req: Request, _res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { farmId } = req.params;
+      const farmId = req.params.farmId || req.params.id;
       if (!farmId) {
         return next(AppError.badRequest('Farm ID is required'));
       }
 
       // 1. Verify authenticated user identity is present
       if (!req.user || !req.user.id) {
-        return next(AppError.unauthorized('Authentication required to access farm risk assessment'));
+        return next(AppError.unauthorized('Authentication required to access farm'));
       }
 
       // 2. Fetch farm parcel from repository
@@ -31,7 +31,12 @@ export const createAuthorizeFarmAccess = (repo: IFarmRepository = farmRepository
         return next(AppError.notFound(`Farm with ID '${farmId}' not found`));
       }
 
-      // 3. Enforce strict farmer ownership: farm.farmerId === req.user.id
+      // 3. ADMIN role has global administrative access
+      if (req.user.role === 'ADMIN') {
+        return next();
+      }
+
+      // 4. Enforce strict farmer ownership: farm.farmerId === req.user.id
       if (farm.farmerId !== req.user.id) {
         return next(
           AppError.forbidden(`Access denied: You do not have permission to access farm '${farmId}'`)

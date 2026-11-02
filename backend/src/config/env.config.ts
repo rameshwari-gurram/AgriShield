@@ -3,13 +3,18 @@ import { z } from 'zod';
 
 dotenv.config();
 
-const envSchema = z.object({
+export const KNOWN_DEV_JWT_SECRETS = [
+  'development_jwt_secret_key_12345',
+  'your_super_secret_jwt_key_replace_in_production',
+] as const;
+
+export const envSchema = z.object({
   PORT: z.string().default('5000').transform((val) => parseInt(val, 10)),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   API_VERSION: z.string().default('v1'),
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required').default('postgresql://postgres:postgres_secure_password@localhost:5432/agrishield_db?schema=public'),
-  JWT_SECRET: z.string().min(8, 'JWT_SECRET must be at least 8 characters').default('development_jwt_secret_key_12345'),
+  JWT_SECRET: z.string().default('development_jwt_secret_key_12345'),
   JWT_EXPIRES_IN: z.string().default('1d'),
   ML_SERVICE_URL: z.string().url().default('http://localhost:8000'),
   OPEN_METEO_BASE_URL: z.string().url().default('https://api.open-meteo.com/v1/forecast'),
@@ -26,12 +31,31 @@ const envSchema = z.object({
       if (typeof val === 'boolean') return val;
       if (typeof val === 'string') {
         const lower = val.trim().toLowerCase();
-        if (lower === 'false' || lower === '0' || lower === 'no') return false;
-        return true;
+        if (lower === 'true' || lower === '1' || lower === 'yes') return true;
+        return false;
       }
-      return true;
+      return false;
     }, z.boolean())
-    .default(true),
+    .default(false),
+  // Email Service Settings (Gmail SMTP / Nodemailer)
+  EMAIL_ENABLED: z
+    .preprocess((val) => {
+      if (typeof val === 'boolean') return val;
+      if (typeof val === 'string') return val.trim().toLowerCase() === 'true';
+      return false;
+    }, z.boolean())
+    .default(false),
+  EMAIL_PROVIDER: z.string().default('gmail'),
+  EMAIL_USER: z.string().default(''),
+  EMAIL_APP_PASSWORD: z.string().default(''),
+  EMAIL_FROM: z.string().default(''),
+  EMAIL_TIMEOUT_MS: z
+    .preprocess((val) => {
+      if (typeof val === 'number') return val;
+      if (typeof val === 'string') return parseInt(val, 10);
+      return 10000;
+    }, z.number().int().positive())
+    .default(10000),
   // Automated Risk Evaluation Settings (Module 10 Stage 10.3)
   AUTOMATED_RISK_EVALUATION_ENABLED: z
     .preprocess((val) => {
@@ -68,10 +92,80 @@ const envSchema = z.object({
       return 54329;
     }, z.number().int().positive().max(65535))
     .default(54329),
+  // Administrative Authentication Settings (Stage 1)
+  ADMIN_USERNAME: z.string().trim().min(3).optional(),
+  ADMIN_PASSWORD_HASH: z.string().trim().optional(),
+  ADMIN_EMAIL: z.string().trim().email().optional(),
+  ADMIN_ID: z.string().uuid().optional(),
+  ADMIN_FULL_NAME: z.string().trim().optional(),
+}).superRefine((data, ctx) => {
+  if (data.NODE_ENV === 'production') {
+    const rawSecret = data.JWT_SECRET;
+    const trimmed = typeof rawSecret === 'string' ? rawSecret.trim() : '';
+
+    if (!trimmed) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['JWT_SECRET'],
+        message: 'In production, JWT_SECRET is required and cannot be empty.',
+      });
+      return;
+    }
+
+    if ((KNOWN_DEV_JWT_SECRETS as readonly string[]).includes(trimmed)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['JWT_SECRET'],
+        message:
+          'In production, JWT_SECRET cannot use known development fallback values. Configure a secure secret.',
+      });
+      return;
+    }
+
+    if (trimmed.length < 16) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['JWT_SECRET'],
+        message: 'In production, JWT_SECRET must be at least 16 characters.',
+      });
+    }
+
+    if (data.ADMIN_USERNAME && !data.ADMIN_PASSWORD_HASH) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['ADMIN_PASSWORD_HASH'],
+        message: 'In production, ADMIN_PASSWORD_HASH is required when ADMIN_USERNAME is configured.',
+      });
+    }
+
+    if (data.ADMIN_PASSWORD_HASH && !data.ADMIN_USERNAME) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['ADMIN_USERNAME'],
+        message: 'In production, ADMIN_USERNAME is required when ADMIN_PASSWORD_HASH is configured.',
+      });
+    }
+
+    if (data.ADMIN_PASSWORD_HASH) {
+      const hash = data.ADMIN_PASSWORD_HASH.trim();
+      const isBcrypt = /^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/.test(hash);
+      if (!isBcrypt) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['ADMIN_PASSWORD_HASH'],
+          message: 'In production, ADMIN_PASSWORD_HASH must be a valid bcrypt hash.',
+        });
+      }
+    }
+  }
 });
 
+export const validateEnv = (rawEnv: NodeJS.ProcessEnv | Record<string, any> = process.env) => {
+  return envSchema.safeParse(rawEnv);
+};
+
 const parseEnv = () => {
-  const result = envSchema.safeParse(process.env);
+  const result = validateEnv(process.env);
 
   if (!result.success) {
     console.error('❌ Invalid environment variables:', result.error.format());

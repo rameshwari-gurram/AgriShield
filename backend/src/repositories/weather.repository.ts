@@ -35,54 +35,54 @@ export class WeatherRepository implements IWeatherRepository {
 
   /**
    * Atomically upsert a batch of weather records using a PostgreSQL transaction.
-   * For the initial 24-hour backfill, this method MUST use a Prisma $transaction
-   * so the complete weather batch is all-or-nothing: if any record fails, the entire
-   * transaction rolls back and zero records from the failed batch remain persisted.
+   * For the initial backfill and ongoing telemetry syncs, this method uses a Prisma
+   * $transaction so the complete weather batch is all-or-nothing: if any record fails,
+   * the entire transaction rolls back and zero records from the failed batch remain persisted.
+   *
+   * Executes via pipelined batched upsert operations: each observation is idempotently
+   * updated if an existing (farmId, observedAt) row exists, or created otherwise.
    */
   async upsertMany(farmId: string, observations: NormalizedWeatherDTO[]): Promise<WeatherRecord[]> {
     if (!observations || observations.length === 0) {
       return [];
     }
 
-    return this.db.$transaction(async (tx) => {
-      const records: WeatherRecord[] = [];
-      for (const obs of observations) {
-        const record = await tx.weatherRecord.upsert({
-          where: {
-            farm_observation_unique: {
-              farmId,
-              observedAt: obs.observedAt,
-            },
-          },
-          update: {
-            latitude: obs.latitude,
-            longitude: obs.longitude,
-            temperatureC: obs.temperatureC,
-            humidityPercent: obs.humidityPercent,
-            rainfallMm: obs.rainfallMm,
-            windSpeedKmh: obs.windSpeedKmh,
-            windGustKmh: obs.windGustKmh,
-            weatherCode: obs.weatherCode,
-            source: obs.source,
-          },
-          create: {
+    const operations = observations.map((obs) =>
+      this.db.weatherRecord.upsert({
+        where: {
+          farm_observation_unique: {
             farmId,
             observedAt: obs.observedAt,
-            latitude: obs.latitude,
-            longitude: obs.longitude,
-            temperatureC: obs.temperatureC,
-            humidityPercent: obs.humidityPercent,
-            rainfallMm: obs.rainfallMm,
-            windSpeedKmh: obs.windSpeedKmh,
-            windGustKmh: obs.windGustKmh,
-            weatherCode: obs.weatherCode,
-            source: obs.source,
           },
-        });
-        records.push(record);
-      }
-      return records;
-    });
+        },
+        update: {
+          latitude: obs.latitude,
+          longitude: obs.longitude,
+          temperatureC: obs.temperatureC,
+          humidityPercent: obs.humidityPercent,
+          rainfallMm: obs.rainfallMm,
+          windSpeedKmh: obs.windSpeedKmh,
+          windGustKmh: obs.windGustKmh,
+          weatherCode: obs.weatherCode,
+          source: obs.source,
+        },
+        create: {
+          farmId,
+          observedAt: obs.observedAt,
+          latitude: obs.latitude,
+          longitude: obs.longitude,
+          temperatureC: obs.temperatureC,
+          humidityPercent: obs.humidityPercent,
+          rainfallMm: obs.rainfallMm,
+          windSpeedKmh: obs.windSpeedKmh,
+          windGustKmh: obs.windGustKmh,
+          weatherCode: obs.weatherCode,
+          source: obs.source,
+        },
+      })
+    );
+
+    return this.db.$transaction(operations);
   }
 
   /**

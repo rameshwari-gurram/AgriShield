@@ -500,8 +500,9 @@ async function runStage94ApiIntegrationTests() {
   const address = server.address() as { port: number };
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
-  const tokenFarmerA = generateToken(FARMER_A_ID);
-  const tokenFarmerB = generateToken(FARMER_B_ID);
+  const tokenFarmerA = generateToken(FARMER_A_ID, 'FARMER');
+  const tokenFarmerB = generateToken(FARMER_B_ID, 'FARMER');
+  const tokenAdmin = generateToken('admin-00000000-0000-4000-8000-000000000000', 'ADMIN');
 
   try {
     // =========================================================================
@@ -832,26 +833,37 @@ async function runStage94ApiIntegrationTests() {
       console.log('  ✅ PASSED: 2.10 Malformed policy UUID parameter rejected with HTTP 400');
     }
 
-    // 2.11 POST /api/v1/policies/:id/issue activates policy
+    // 2.11 POST /api/v1/policies/:id/issue enforces ADMIN authorization and activates policy
     {
-      const res = await fetch(`${baseUrl}/api/v1/policies/${createdPolicyId}/issue`, {
+      // Farmer attempting to issue policy is rejected with HTTP 403 Forbidden
+      const farmerRes = await fetch(`${baseUrl}/api/v1/policies/${createdPolicyId}/issue`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${tokenFarmerA}` },
+      });
+      const farmerBody = await farmerRes.json();
+      assert.equal(farmerRes.status, 403);
+      assert.equal(farmerBody.success, false);
+      assert.match(farmerBody.message, /access denied/i);
+
+      // Admin issuing policy succeeds with HTTP 200
+      const res = await fetch(`${baseUrl}/api/v1/policies/${createdPolicyId}/issue`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${tokenAdmin}` },
       });
       const body = await res.json();
       assert.equal(res.status, 200);
       assert.equal(body.success, true);
       assert.equal(body.data.status, PolicyStatus.ACTIVE);
       assert.match(body.message, /issued and activated successfully/i);
-      passed++;
-      console.log('  ✅ PASSED: 2.11 POST /api/v1/policies/:id/issue transitions policy to ACTIVE (HTTP 200)');
+      passed += 2;
+      console.log('  ✅ PASSED: 2.11 Farmer issuance rejected with HTTP 403; Admin POST /api/v1/policies/:id/issue transitions policy to ACTIVE (HTTP 200)');
     }
 
     // 2.12 Re-issuing an already active policy returns 400
     {
       const res = await fetch(`${baseUrl}/api/v1/policies/${createdPolicyId}/issue`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${tokenFarmerA}` },
+        headers: { Authorization: `Bearer ${tokenAdmin}` },
       });
       const body = await res.json();
       assert.equal(res.status, 400);
@@ -1016,11 +1028,22 @@ async function runStage94ApiIntegrationTests() {
       console.log('  ✅ PASSED: 3.6 GET /api/v1/claims/:id retrieves claim details (HTTP 200)');
     }
 
-    // 3.7 POST /api/v1/claims/:id/approve approves claim without modifying policy balance
+    // 3.7 POST /api/v1/claims/:id/approve requires ADMIN authorization
     {
-      const res = await fetch(`${baseUrl}/api/v1/claims/${evaluatedClaimId}/approve`, {
+      // Farmer attempting to approve claim is rejected with HTTP 403 Forbidden
+      const farmerRes = await fetch(`${baseUrl}/api/v1/claims/${evaluatedClaimId}/approve`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${tokenFarmerA}` },
+      });
+      const farmerBody = await farmerRes.json();
+      assert.equal(farmerRes.status, 403);
+      assert.equal(farmerBody.success, false);
+      assert.match(farmerBody.message, /access denied/i);
+
+      // Admin approving claim succeeds with HTTP 200
+      const res = await fetch(`${baseUrl}/api/v1/claims/${evaluatedClaimId}/approve`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${tokenAdmin}` },
       });
       const body = await res.json();
       assert.equal(res.status, 200);
@@ -1030,8 +1053,8 @@ async function runStage94ApiIntegrationTests() {
       // Verify policy balance still unchanged
       const policy = await mockPolicyRepo.findById(createdPolicyId);
       assert.equal(policy?.cumulativePaidAmount.toFixed(2), '0.00');
-      passed += 2;
-      console.log('  ✅ PASSED: 3.7 POST /api/v1/claims/:id/approve approves claim (HTTP 200)');
+      passed += 3;
+      console.log('  ✅ PASSED: 3.7 Farmer claim approval rejected with HTTP 403; Admin POST /api/v1/claims/:id/approve approves claim (HTTP 200)');
       console.log('  ✅ PASSED: 3.8 Approval preserves policy cumulativePaidAmount at 0.00');
     }
 
@@ -1039,7 +1062,7 @@ async function runStage94ApiIntegrationTests() {
     {
       const res = await fetch(`${baseUrl}/api/v1/claims/${evaluatedClaimId}/approve`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${tokenFarmerA}` },
+        headers: { Authorization: `Bearer ${tokenAdmin}` },
       });
       const body = await res.json();
       assert.equal(res.status, 400);
@@ -1049,13 +1072,30 @@ async function runStage94ApiIntegrationTests() {
       console.log('  ✅ PASSED: 3.9 Approving already approved claim rejected with HTTP 400');
     }
 
-    // 3.10 POST /api/v1/claims/:id/settle executes simulated payout in transaction
+    // 3.10 POST /api/v1/claims/:id/settle requires ADMIN authorization and executes simulated payout
     {
-      const res = await fetch(`${baseUrl}/api/v1/claims/${evaluatedClaimId}/settle`, {
+      // Farmer attempting to settle claim is rejected with HTTP 403 Forbidden
+      const farmerRes = await fetch(`${baseUrl}/api/v1/claims/${evaluatedClaimId}/settle`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${tokenFarmerA}`,
+        },
+        body: JSON.stringify({
+          simulatedTransactionId: 'SIM-PAYOUT-TEST-8888',
+        }),
+      });
+      const farmerBody = await farmerRes.json();
+      assert.equal(farmerRes.status, 403);
+      assert.equal(farmerBody.success, false);
+      assert.match(farmerBody.message, /access denied/i);
+
+      // Admin settling claim succeeds with HTTP 200
+      const res = await fetch(`${baseUrl}/api/v1/claims/${evaluatedClaimId}/settle`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${tokenAdmin}`,
         },
         body: JSON.stringify({
           simulatedTransactionId: 'SIM-PAYOUT-TEST-8888',
@@ -1072,8 +1112,8 @@ async function runStage94ApiIntegrationTests() {
       const policy = await mockPolicyRepo.findById(createdPolicyId);
       assert.equal(policy?.cumulativePaidAmount.toFixed(2), '50000.00');
       assert.equal(policy?.status, PolicyStatus.ACTIVE); // Remaining 50,000 coverage exists
-      passed += 2;
-      console.log('  ✅ PASSED: 3.10 POST /api/v1/claims/:id/settle marks claim PAID with simulated reference');
+      passed += 3;
+      console.log('  ✅ PASSED: 3.10 Farmer settlement rejected with HTTP 403; Admin POST /api/v1/claims/:id/settle marks claim PAID');
       console.log('  ✅ PASSED: 3.11 Settlement atomically increments policy cumulativePaidAmount to 50000.00');
     }
 
@@ -1081,7 +1121,7 @@ async function runStage94ApiIntegrationTests() {
     {
       const res = await fetch(`${baseUrl}/api/v1/claims/${evaluatedClaimId}/settle`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${tokenFarmerA}` },
+        headers: { Authorization: `Bearer ${tokenAdmin}` },
       });
       const body = await res.json();
       assert.equal(res.status, 400);
@@ -1125,23 +1165,34 @@ async function runStage94ApiIntegrationTests() {
       assert.equal(evalRes.status, 201);
       const secondClaimId = evalBody.data.id;
 
-      // Reject without reason returns 400
-      const emptyRejectRes = await fetch(`${baseUrl}/api/v1/claims/${secondClaimId}/reject`, {
+      // Farmer attempting to reject claim is rejected with HTTP 403 Forbidden
+      const farmerRejectRes = await fetch(`${baseUrl}/api/v1/claims/${secondClaimId}/reject`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${tokenFarmerA}`,
         },
+        body: JSON.stringify({ reason: 'Farmer self-rejection attempt' }),
+      });
+      assert.equal(farmerRejectRes.status, 403);
+
+      // Admin reject without reason returns 400
+      const emptyRejectRes = await fetch(`${baseUrl}/api/v1/claims/${secondClaimId}/reject`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${tokenAdmin}`,
+        },
         body: JSON.stringify({}),
       });
       assert.equal(emptyRejectRes.status, 400);
 
-      // Reject with reason succeeds
+      // Admin reject with reason succeeds
       const rejectRes = await fetch(`${baseUrl}/api/v1/claims/${secondClaimId}/reject`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${tokenFarmerA}`,
+          Authorization: `Bearer ${tokenAdmin}`,
         },
         body: JSON.stringify({
           reason: 'Duplicate anomalous weather reading flagged for secondary validation',
@@ -1154,9 +1205,9 @@ async function runStage94ApiIntegrationTests() {
         rejectBody.data.rejectionReason,
         'Duplicate anomalous weather reading flagged for secondary validation'
       );
-      passed += 2;
+      passed += 3;
       console.log('  ✅ PASSED: 3.13 Claim rejection requires non-empty reason (HTTP 400 on empty)');
-      console.log('  ✅ PASSED: 3.14 POST /api/v1/claims/:id/reject transitions claim to REJECTED (HTTP 200)');
+      console.log('  ✅ PASSED: 3.14 Admin POST /api/v1/claims/:id/reject transitions claim to REJECTED (HTTP 200)');
     }
 
     // 3.15 Cannot reject an already settled claim
@@ -1165,7 +1216,7 @@ async function runStage94ApiIntegrationTests() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${tokenFarmerA}`,
+          Authorization: `Bearer ${tokenAdmin}`,
         },
         body: JSON.stringify({ reason: 'Attempt to reject paid claim' }),
       });
@@ -1256,7 +1307,7 @@ async function runStage94ApiIntegrationTests() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${tokenFarmerA}`,
+          Authorization: `Bearer ${tokenAdmin}`,
         },
         body: JSON.stringify({ simulatedTransactionId: 'SIM-PAYOUT-PRE-APPROVAL' }),
       });
@@ -1268,19 +1319,19 @@ async function runStage94ApiIntegrationTests() {
       const policyBeforeApprove = await mockPolicyRepo.findById(createdPolicyId);
       assert.equal(policyBeforeApprove?.cumulativePaidAmount.toFixed(2), '50000.00');
 
-      // Approve the third claim prior to settlement
+      // Approve the third claim prior to settlement (Admin)
       const approveRes = await fetch(`${baseUrl}/api/v1/claims/${thirdClaimId}/approve`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${tokenFarmerA}` },
+        headers: { Authorization: `Bearer ${tokenAdmin}` },
       });
       assert.equal(approveRes.status, 200);
 
-      // Settle the third claim
+      // Settle the third claim (Admin)
       const settleRes = await fetch(`${baseUrl}/api/v1/claims/${thirdClaimId}/settle`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${tokenFarmerA}`,
+          Authorization: `Bearer ${tokenAdmin}`,
         },
         body: JSON.stringify({ simulatedTransactionId: 'SIM-PAYOUT-FINAL-9999' }),
       });
@@ -1452,7 +1503,7 @@ async function runStage94ApiIntegrationTests() {
       const body = await res.json();
       assert.equal(res.status, 403);
       assert.equal(body.success, false);
-      assert.match(body.message, /access denied.*permission.*issue/i);
+      assert.match(body.message, /access denied/i);
 
       // Verify Policy A remains PENDING (mutation prevented)
       const policyRecord = await mockPolicyRepo.findById(isoPolicyA.id);
@@ -1482,7 +1533,7 @@ async function runStage94ApiIntegrationTests() {
       const body = await res.json();
       assert.equal(res.status, 403);
       assert.equal(body.success, false);
-      assert.match(body.message, /access denied.*permission.*evaluate.*policy/i);
+      assert.match(body.message, /access denied/i);
       passed++;
       console.log('  ✅ PASSED: 5.5 Cross-farmer POST /api/v1/claims/evaluate rejected with HTTP 403 Forbidden');
     }
@@ -1495,7 +1546,7 @@ async function runStage94ApiIntegrationTests() {
       const body = await res.json();
       assert.equal(res.status, 403);
       assert.equal(body.success, false);
-      assert.match(body.message, /access denied.*permission.*claim/i);
+      assert.match(body.message, /access denied/i);
       passed++;
       console.log('  ✅ PASSED: 5.6 Cross-farmer GET /api/v1/claims/:id rejected with HTTP 403 Forbidden');
     }
@@ -1509,7 +1560,7 @@ async function runStage94ApiIntegrationTests() {
       const body = await res.json();
       assert.equal(res.status, 403);
       assert.equal(body.success, false);
-      assert.match(body.message, /access denied.*permission.*approve/i);
+      assert.match(body.message, /access denied/i);
 
       // Verify Claim A remains PENDING
       const claimRecord = await mockClaimRepo.findById(isoClaimA.id);
@@ -1532,7 +1583,7 @@ async function runStage94ApiIntegrationTests() {
       const body = await res.json();
       assert.equal(res.status, 403);
       assert.equal(body.success, false);
-      assert.match(body.message, /access denied.*permission.*settle/i);
+      assert.match(body.message, /access denied/i);
 
       // Verify Claim A remains PENDING and Policy balance remains 0.00
       const claimRecord = await mockClaimRepo.findById(isoClaimA.id);
@@ -1557,7 +1608,7 @@ async function runStage94ApiIntegrationTests() {
       const body = await res.json();
       assert.equal(res.status, 403);
       assert.equal(body.success, false);
-      assert.match(body.message, /access denied.*permission.*reject/i);
+      assert.match(body.message, /access denied/i);
 
       // Verify Claim A remains PENDING
       const claimRecord = await mockClaimRepo.findById(isoClaimA.id);
@@ -1643,7 +1694,7 @@ async function runStage94ApiIntegrationTests() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${tokenFarmerA}`,
+          Authorization: `Bearer ${tokenAdmin}`,
         },
         body: JSON.stringify({ simulatedTransactionId: 'SIM-PAYOUT-EARLY-001' }),
       });
@@ -1664,7 +1715,7 @@ async function runStage94ApiIntegrationTests() {
       // Now approve isoClaimA so subsequent settlement format tests execute against an APPROVED claim
       const approveRes = await fetch(`${baseUrl}/api/v1/claims/${isoClaimA.id}/approve`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${tokenFarmerA}` },
+        headers: { Authorization: `Bearer ${tokenAdmin}` },
       });
       assert.equal(approveRes.status, 200);
     }
@@ -1675,7 +1726,7 @@ async function runStage94ApiIntegrationTests() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${tokenFarmerA}`,
+          Authorization: `Bearer ${tokenAdmin}`,
         },
         body: JSON.stringify({ simulatedTransactionId: 'REAL-BANK-WIRE-TRANSFER-9999' }),
       });
@@ -1693,7 +1744,7 @@ async function runStage94ApiIntegrationTests() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${tokenFarmerA}`,
+          Authorization: `Bearer ${tokenAdmin}`,
         },
         body: JSON.stringify({ simulatedTransactionId: 'sim-payout-invalid-case' }),
       });
@@ -1704,13 +1755,13 @@ async function runStage94ApiIntegrationTests() {
       console.log("  ✅ PASSED: 5.18 Settlement reference with lowercase prefix rejected with HTTP 400");
     }
 
-    // 5.19 Authorized same-farmer legitimate settlement with valid SIM- reference succeeds
+    // 5.19 Authorized admin settlement with valid SIM- reference succeeds
     {
       const res = await fetch(`${baseUrl}/api/v1/claims/${isoClaimA.id}/settle`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${tokenFarmerA}`,
+          Authorization: `Bearer ${tokenAdmin}`,
         },
         body: JSON.stringify({ simulatedTransactionId: 'SIM-PAYOUT-VALID-AUTHORIZED-001' }),
       });

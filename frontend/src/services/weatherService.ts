@@ -19,10 +19,16 @@ export const weatherService = {
   /**
    * Synchronize weather for a farm parcel.
    * Calls POST /api/v1/farms/:farmId/weather/sync
+   * Uses an endpoint-specific 30-second timeout to accommodate live numerical
+   * prediction queries from Open-Meteo and atomic 35-day hourly observation persistence.
    */
   async syncWeather(farmId: string): Promise<ApiResponse<WeatherSyncResult>> {
     const response = await apiClient.post<ApiResponse<WeatherSyncResult>>(
-      `/farms/${farmId}/weather/sync`
+      `/farms/${farmId}/weather/sync`,
+      {},
+      {
+        timeout: 30000,
+      }
     );
     return response.data;
   },

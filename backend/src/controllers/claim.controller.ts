@@ -55,16 +55,16 @@ export class ClaimController {
   /**
    * POST /api/v1/claims/evaluate
    * Evaluates a prospective claim against Module 6 assessment results.
-   * Enforces that the caller owns the policy being evaluated.
+   * Enforces that the caller owns the policy being evaluated or is ADMIN.
    */
   async evaluateClaim(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      // Object-level authorization: caller must own the target policy
+      // Object-level authorization: caller must own the target policy or be ADMIN
       const policy = await this.policyRepo.findById(req.body.policyId);
       if (!policy) {
         throw AppError.notFound(`Policy with ID '${req.body.policyId}' not found`);
       }
-      if (req.user && policy.farmerId !== req.user.id) {
+      if (req.user && req.user.role !== 'ADMIN' && policy.farmerId !== req.user.id) {
         throw AppError.forbidden('Access denied: You do not have permission to evaluate claims for this policy');
       }
 
@@ -80,18 +80,18 @@ export class ClaimController {
   /**
    * GET /api/v1/claims/:id
    * Retrieves claim details by UUID.
-   * Enforces that the caller owns the associated policy.
+   * Enforces that the caller owns the associated policy or is ADMIN.
    */
   async getClaimById(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const result = await this.service.getClaimById(req.params.id);
 
-      // Object-level authorization: caller must own the associated policy
+      // Object-level authorization: caller must own the associated policy or be ADMIN
       const policy = await this.policyRepo.findById(result.policyId);
       if (!policy) {
         throw AppError.notFound('Associated policy for claim not found');
       }
-      if (req.user && policy.farmerId !== req.user.id) {
+      if (req.user && req.user.role !== 'ADMIN' && policy.farmerId !== req.user.id) {
         throw AppError.forbidden('Access denied: You do not have permission to access this claim');
       }
 
@@ -106,18 +106,12 @@ export class ClaimController {
   /**
    * POST /api/v1/claims/:id/approve
    * Approves a PENDING claim without modifying policy balance.
-   * Enforces that the caller owns the associated policy.
+   * Strictly restricted to ADMIN role.
    */
   async approveClaim(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      // 1. Verify existence and caller ownership prior to mutation
-      const claim = await this.service.getClaimById(req.params.id);
-      const policy = await this.policyRepo.findById(claim.policyId);
-      if (!policy) {
-        throw AppError.notFound('Associated policy for claim not found');
-      }
-      if (req.user && policy.farmerId !== req.user.id) {
-        throw AppError.forbidden('Access denied: You do not have permission to approve this claim');
+      if (req.user?.role !== 'ADMIN') {
+        throw AppError.forbidden('Access denied: Admin role required to approve claims');
       }
 
       const result = await this.service.approveClaim(req.params.id);
@@ -132,18 +126,12 @@ export class ClaimController {
   /**
    * POST /api/v1/claims/:id/settle
    * Settles a claim inside a transactional boundary with simulated payout reference.
-   * Enforces that the caller owns the associated policy prior to executing settlement.
+   * Strictly restricted to ADMIN role.
    */
   async settleClaim(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      // 1. Verify existence and caller ownership prior to financial settlement mutation
-      const claim = await this.service.getClaimById(req.params.id);
-      const policy = await this.policyRepo.findById(claim.policyId);
-      if (!policy) {
-        throw AppError.notFound('Associated policy for claim not found');
-      }
-      if (req.user && policy.farmerId !== req.user.id) {
-        throw AppError.forbidden('Access denied: You do not have permission to settle this claim');
+      if (req.user?.role !== 'ADMIN') {
+        throw AppError.forbidden('Access denied: Admin role required to settle claims');
       }
 
       const options = req.body?.simulatedTransactionId
@@ -162,18 +150,12 @@ export class ClaimController {
   /**
    * POST /api/v1/claims/:id/reject
    * Rejects a claim with an explicit reason.
-   * Enforces that the caller owns the associated policy prior to mutating state.
+   * Strictly restricted to ADMIN role.
    */
   async rejectClaim(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      // 1. Verify existence and caller ownership prior to rejection mutation
-      const claim = await this.service.getClaimById(req.params.id);
-      const policy = await this.policyRepo.findById(claim.policyId);
-      if (!policy) {
-        throw AppError.notFound('Associated policy for claim not found');
-      }
-      if (req.user && policy.farmerId !== req.user.id) {
-        throw AppError.forbidden('Access denied: You do not have permission to reject this claim');
+      if (req.user?.role !== 'ADMIN') {
+        throw AppError.forbidden('Access denied: Admin role required to reject claims');
       }
 
       const { reason } = req.body;
@@ -196,13 +178,17 @@ export class ClaimController {
     try {
       const { policyId, farmId } = req.query as { policyId?: string; farmId?: string };
 
+      if (!policyId && !farmId && req.user?.role !== 'ADMIN') {
+        throw AppError.badRequest('policyId or farmId query parameter is required for farmer claims listing');
+      }
+
       if (policyId && farmId) {
         // 1. Verify policy existence and ownership
         const policy = await this.policyRepo.findById(policyId);
         if (!policy) {
           throw AppError.notFound(`Policy with ID '${policyId}' not found`);
         }
-        if (req.user && policy.farmerId !== req.user.id) {
+        if (req.user && req.user.role !== 'ADMIN' && policy.farmerId !== req.user.id) {
           throw AppError.forbidden('Access denied: You do not have permission to access claims for this policy');
         }
 
@@ -211,7 +197,7 @@ export class ClaimController {
         if (!farm) {
           throw AppError.notFound(`Farm with ID '${farmId}' not found`);
         }
-        if (req.user && farm.farmerId !== req.user.id) {
+        if (req.user && req.user.role !== 'ADMIN' && farm.farmerId !== req.user.id) {
           throw AppError.forbidden(`Access denied: You do not have permission to access claims for farm '${farmId}'`);
         }
 
@@ -230,7 +216,7 @@ export class ClaimController {
         if (!policy) {
           throw AppError.notFound(`Policy with ID '${policyId}' not found`);
         }
-        if (req.user && policy.farmerId !== req.user.id) {
+        if (req.user && req.user.role !== 'ADMIN' && policy.farmerId !== req.user.id) {
           throw AppError.forbidden('Access denied: You do not have permission to access claims for this policy');
         }
 
@@ -244,7 +230,7 @@ export class ClaimController {
         if (!farm) {
           throw AppError.notFound(`Farm with ID '${farmId}' not found`);
         }
-        if (req.user && farm.farmerId !== req.user.id) {
+        if (req.user && req.user.role !== 'ADMIN' && farm.farmerId !== req.user.id) {
           throw AppError.forbidden(`Access denied: You do not have permission to access claims for farm '${farmId}'`);
         }
 

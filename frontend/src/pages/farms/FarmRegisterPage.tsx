@@ -11,22 +11,63 @@ import {
   Tag,
   UserCheck,
   Plus,
+  ShieldCheck,
+  Lock,
 } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
 import { farmService } from '../../services/farmService';
 import { farmerService } from '../../services/farmerService';
 import { Farmer, Farm, AreaUnit, FarmStatus, AREA_UNITS, FARM_STATUSES } from '../../types';
 import { LoadingSpinner } from '../../components/LoadingSpinner';
 
-export const FarmRegisterPage: React.FC = () => {
+export interface FarmRegisterPageProps {
+  initialFarmers?: Farmer[];
+  initialLoadingFarmers?: boolean;
+}
+
+export const FarmRegisterPage: React.FC<FarmRegisterPageProps> = ({
+  initialFarmers,
+  initialLoadingFarmers,
+}) => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const preSelectedFarmerId = searchParams.get('farmerId') || '';
 
-  const [farmers, setFarmers] = useState<Farmer[]>([]);
-  const [loadingFarmers, setLoadingFarmers] = useState(true);
+  const { user, isFarmer, isAdmin, isAuthenticated, activeProducer } = useAuth();
+  const currentFarmerId = activeProducer?.id || user?.id || '';
+
+  const [farmers, setFarmers] = useState<Farmer[]>(() => {
+    if (initialFarmers !== undefined) {
+      return initialFarmers;
+    }
+    if (isFarmer && activeProducer) {
+      return [
+        {
+          id: activeProducer.id,
+          fullName: activeProducer.fullName,
+          mobileNumber: activeProducer.mobileNumber,
+          email: activeProducer.email || null,
+          preferredLanguage: (activeProducer.preferredLanguage as any) || 'en',
+          farmerReferenceNumber: activeProducer.farmerReferenceNumber || null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      ];
+    }
+    return [];
+  });
+  const [loadingFarmers, setLoadingFarmers] = useState<boolean>(() => {
+    if (initialLoadingFarmers !== undefined) {
+      return initialLoadingFarmers;
+    }
+    if (isFarmer && (activeProducer || user)) {
+      return false;
+    }
+    return true;
+  });
 
   // Form state
-  const [farmerId, setFarmerId] = useState(preSelectedFarmerId);
+  const [farmerId, setFarmerId] = useState(isFarmer ? currentFarmerId : preSelectedFarmerId);
   const [farmName, setFarmName] = useState('');
   const [cropName, setCropName] = useState('');
   const [cropVariety, setCropVariety] = useState('');
@@ -47,30 +88,75 @@ export const FarmRegisterPage: React.FC = () => {
   const [createdFarm, setCreatedFarm] = useState<Farm | null>(null);
 
   useEffect(() => {
+    let isMounted = true;
+
     const loadFarmers = async () => {
+      if (!isAuthenticated || initialFarmers !== undefined) {
+        if (isMounted) setLoadingFarmers(false);
+        return;
+      }
+
       try {
-        setLoadingFarmers(true);
-        const res = await farmerService.getFarmers({ limit: 100 });
-        setFarmers(res.data.farmers);
-        if (preSelectedFarmerId) {
-          setFarmerId(preSelectedFarmerId);
-        } else if (res.data.farmers.length > 0 && !farmerId) {
-          setFarmerId(res.data.farmers[0].id);
+        if (isMounted) setLoadingFarmers(true);
+
+        if (isFarmer && currentFarmerId) {
+          // For Farmer role: strictly retrieve own farmer record via authorized endpoint GET /api/v1/farmers/:id
+          setFarmerId(currentFarmerId);
+          try {
+            const res = await farmerService.getFarmerById(currentFarmerId);
+            if (isMounted && res.data) {
+              setFarmers([res.data]);
+            }
+          } catch {
+            // Fallback to activeProducer session details if offline or immediate
+            if (isMounted && activeProducer) {
+              setFarmers([
+                {
+                  id: activeProducer.id,
+                  fullName: activeProducer.fullName,
+                  mobileNumber: activeProducer.mobileNumber,
+                  email: activeProducer.email || null,
+                  preferredLanguage: (activeProducer.preferredLanguage as any) || 'en',
+                  farmerReferenceNumber: activeProducer.farmerReferenceNumber || null,
+                  createdAt: new Date().toISOString(),
+                  updatedAt: new Date().toISOString(),
+                },
+              ]);
+            }
+          }
+        } else if (isAdmin) {
+          // For Admin role: retrieve all farmers for selection dropdown
+          const res = await farmerService.getFarmers({ limit: 100 });
+          if (isMounted) {
+            setFarmers(res.data.farmers);
+            if (preSelectedFarmerId) {
+              setFarmerId(preSelectedFarmerId);
+            } else if (res.data.farmers.length > 0 && !farmerId) {
+              setFarmerId(res.data.farmers[0].id);
+            }
+          }
         }
       } catch (err: unknown) {
         console.error('Failed to load farmers list:', err);
       } finally {
-        setLoadingFarmers(false);
+        if (isMounted) {
+          setLoadingFarmers(false);
+        }
       }
     };
 
     loadFarmers();
-  }, [preSelectedFarmerId]);
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isAuthenticated, isFarmer, isAdmin, currentFarmerId, preSelectedFarmerId]);
 
   const validateForm = (): boolean => {
     const errors: Record<string, string> = {};
 
-    if (!farmerId) {
+    const effectiveFarmerId = isFarmer ? (currentFarmerId || farmerId) : farmerId;
+    if (!effectiveFarmerId) {
       errors.farmerId = 'Please select a registered farmer';
     }
 
@@ -150,10 +236,12 @@ export const FarmRegisterPage: React.FC = () => {
       return;
     }
 
+    const effectiveFarmerId = isFarmer ? (currentFarmerId || farmerId) : farmerId;
+
     try {
       setSubmitting(true);
       const res = await farmService.registerFarm({
-        farmerId,
+        farmerId: effectiveFarmerId,
         farmName: farmName.trim(),
         cropName: cropName.trim(),
         cropVariety: cropVariety.trim() || undefined,
@@ -238,12 +326,21 @@ export const FarmRegisterPage: React.FC = () => {
             >
               View Farm Details
             </Link>
-            <Link
-              to={`/farmers/${createdFarm.farmerId}`}
-              className="px-4 py-2 rounded-lg bg-white border border-emerald-300 text-emerald-800 hover:bg-emerald-100 font-medium text-sm transition"
-            >
-              View Farmer Profile
-            </Link>
+            {isFarmer ? (
+              <Link
+                to="/farms"
+                className="px-4 py-2 rounded-lg bg-white border border-emerald-300 text-emerald-800 hover:bg-emerald-100 font-medium text-sm transition"
+              >
+                View My Farms
+              </Link>
+            ) : (
+              <Link
+                to={`/farmers/${createdFarm.farmerId}`}
+                className="px-4 py-2 rounded-lg bg-white border border-emerald-300 text-emerald-800 hover:bg-emerald-100 font-medium text-sm transition"
+              >
+                View Farmer Profile
+              </Link>
+            )}
             <button
               onClick={() => {
                 setCreatedFarm(null);
@@ -287,19 +384,66 @@ export const FarmRegisterPage: React.FC = () => {
                   <UserCheck className="w-4 h-4 text-emerald-600" />
                   <span>Farmer Association</span>
                 </div>
-                <Link
-                  to="/farmers/register"
-                  className="inline-flex items-center gap-1 text-xs text-emerald-700 hover:text-emerald-800 font-medium"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  Register New Farmer
-                </Link>
+                {isAdmin && (
+                  <Link
+                    to="/farmers/register"
+                    className="inline-flex items-center gap-1 text-xs text-emerald-700 hover:text-emerald-800 font-medium"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Register New Farmer
+                  </Link>
+                )}
               </div>
 
               {loadingFarmers ? (
                 <div className="flex items-center gap-2 text-xs text-slate-500 py-2">
                   <LoadingSpinner size="sm" />
                   <span>Loading registered farmers...</span>
+                </div>
+              ) : isFarmer ? (
+                /* Farmer Role: Read-only Verified Producer Card */
+                <div className="p-4 rounded-xl bg-emerald-50/70 border border-emerald-200/80 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-lg bg-emerald-100 border border-emerald-300 flex items-center justify-center text-emerald-700 flex-shrink-0">
+                        <ShieldCheck className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className="text-sm font-bold text-slate-900">
+                          {farmers[0]?.fullName || activeProducer?.fullName || 'Verified Farmer'}
+                        </div>
+                        <div className="text-xs text-slate-600 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                          <span>📱 +91 {farmers[0]?.mobileNumber || activeProducer?.mobileNumber}</span>
+                          {(farmers[0]?.email || activeProducer?.email) && (
+                            <span>• ✉️ {farmers[0]?.email || activeProducer?.email}</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-100/90 text-emerald-800 text-[11px] font-semibold border border-emerald-300/70">
+                      <Lock className="w-3 h-3 text-emerald-700" />
+                      <span>Verified Account</span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between pt-2 border-t border-emerald-200/60 text-[11px] text-emerald-900">
+                    <div>
+                      Reference:{' '}
+                      <span className="font-mono font-bold">
+                        {farmers[0]?.farmerReferenceNumber || activeProducer?.farmerReferenceNumber || 'AGRI-PROD'}
+                      </span>
+                    </div>
+                    <div className="text-emerald-700 font-medium">
+                      * Parcel will be registered directly under your producer identity
+                    </div>
+                  </div>
+                </div>
+              ) : !isAuthenticated ? (
+                <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-slate-700 text-sm space-y-1">
+                  <p className="font-semibold text-slate-800">Authentication Required</p>
+                  <p className="text-xs text-slate-500">
+                    Please sign in with your mobile OTP or administrator credentials to register a farm parcel.
+                  </p>
                 </div>
               ) : farmers.length === 0 ? (
                 <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-sm space-y-2">
@@ -664,7 +808,11 @@ export const FarmRegisterPage: React.FC = () => {
               </button>
               <button
                 type="submit"
-                disabled={submitting || (farmers.length === 0 && !loadingFarmers)}
+                disabled={
+                  submitting ||
+                  (!isFarmer && farmers.length === 0 && !loadingFarmers) ||
+                  (isFarmer && !currentFarmerId && !loadingFarmers)
+                }
                 className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-sm shadow-md shadow-emerald-900/20 transition disabled:opacity-50"
               >
                 {submitting && <LoadingSpinner size="sm" className="text-white" />}

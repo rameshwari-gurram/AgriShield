@@ -12,7 +12,10 @@
     "prisma:studio": "prisma studio",
     "typecheck": "tsc --noEmit",
     "test": "tsx tests/farmer.unit.test.ts && tsx tests/farm.unit.test.ts && tsx tests/farmBoundary.unit.test.ts",
-    "test:auth": "tsx tests/authOtp.unit.test.ts && tsx tests/api/auth.api.test.ts",
+    "test:unit": "tsx tests/farmer.unit.test.ts && tsx tests/farm.unit.test.ts && tsx tests/farmBoundary.unit.test.ts && tsx tests/authOtp.unit.test.ts && tsx tests/adminAuth.unit.test.ts && tsx tests/routeExports.unit.test.ts && tsx tests/climateRiskRuleEngine.unit.test.ts && tsx tests/riskAssessment.unit.test.ts && tsx tests/riskStage6.unit.test.ts && tsx tests/weatherAggregation.unit.test.ts && tsx tests/weatherProvider.unit.test.ts && tsx tests/weatherService.unit.test.ts && tsx tests/automatedRiskEvaluation.unit.test.ts && tsx tests/copernicusAuthHttp.unit.test.ts && tsx tests/copernicusStatisticalApi.unit.test.ts && tsx tests/ndviProcessor.unit.test.ts && tsx tests/satelliteNdvi.unit.test.ts && tsx tests/policyClaim.unit.test.ts && tsx tests/services/policyClaim.service.test.ts && tsx tests/providers/mlHttp.client.test.ts && tsx tests/services/mlFeatureEngineering.service.test.ts && tsx tests/services/mlRiskAssessment.service.test.ts && tsx tests/services/ndviForecast.service.test.ts && tsx tests/api/auth.api.test.ts && tsx tests/api/adminAuth.api.test.ts && tsx tests/api/rbac.api.test.ts && tsx tests/api/policyClaim.api.test.ts && tsx tests/api/mlRisk.api.test.ts",
+    "test:auth": "tsx tests/authOtp.unit.test.ts && tsx tests/api/auth.api.test.ts && tsx tests/adminAuth.unit.test.ts && tsx tests/api/adminAuth.api.test.ts",
+    "test:admin:auth": "tsx tests/adminAuth.unit.test.ts && tsx tests/api/adminAuth.api.test.ts",
+    "test:rbac": "tsx tests/api/rbac.api.test.ts",
     "test:weather:provider": "tsx tests/weatherProvider.unit.test.ts",
     "test:weather:service": "tsx tests/weatherService.unit.test.ts",
     "test:weather:integration": "tsx tests/weather.integration.test.ts",
@@ -40,8 +43,6 @@
     "worker:risk-evaluation": "tsx src/workers/automatedRiskEvaluation.worker.ts",
     "seed": "tsx prisma/seed.ts"
   },
-
-
   "prisma": {
     "seed": "tsx prisma/seed.ts"
   },
@@ -65,6 +66,7 @@
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",
+    "nodemailer": "^10.2.1",
     "winston": "^3.13.0",
     "zod": "^3.23.8"
   },
@@ -75,10 +77,10 @@
     "@types/jsonwebtoken": "^9.0.6",
     "@types/morgan": "^1.9.9",
     "@types/node": "^20.14.9",
+    "@types/nodemailer": "^8.0.2",
     "prisma": "^5.16.0",
     "rimraf": "^5.0.7",
     "tsx": "^4.16.2",
     "typescript": "^5.5.3"
   }
 }
-

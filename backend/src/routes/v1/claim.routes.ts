@@ -7,7 +7,7 @@
 
 import { Router } from 'express';
 import { claimController } from '../../controllers/claim.controller.js';
-import { authenticateJwt } from '../../middleware/auth.middleware.js';
+import { authenticateJwt, requireAdmin } from '../../middleware/auth.middleware.js';
 import { authorizeFarmAccess } from '../../middleware/farmOwnership.middleware.js';
 import {
   validateBody,
@@ -65,11 +65,12 @@ claimRouter.get(
 /**
  * @route   POST /api/v1/claims/:id/approve
  * @desc    Approve a PENDING claim without modifying policy balance
- * @access  Protected (Requires Bearer JWT)
+ * @access  Protected (Requires Bearer JWT with ADMIN role)
  */
 claimRouter.post(
   '/:id/approve',
   authenticateJwt,
+  requireAdmin,
   validateParams(claimIdParamSchema),
   claimController.approveClaim.bind(claimController)
 );
@@ -77,11 +78,12 @@ claimRouter.post(
 /**
  * @route   POST /api/v1/claims/:id/settle
  * @desc    Execute simulated parametric claim settlement in transaction
- * @access  Protected (Requires Bearer JWT)
+ * @access  Protected (Requires Bearer JWT with ADMIN role)
  */
 claimRouter.post(
   '/:id/settle',
   authenticateJwt,
+  requireAdmin,
   validateParams(claimIdParamSchema),
   validateBody(settleClaimSchema),
   claimController.settleClaim.bind(claimController)
@@ -90,11 +92,12 @@ claimRouter.post(
 /**
  * @route   POST /api/v1/claims/:id/reject
  * @desc    Reject a claim with an explicit reason
- * @access  Protected (Requires Bearer JWT)
+ * @access  Protected (Requires Bearer JWT with ADMIN role)
  */
 claimRouter.post(
   '/:id/reject',
   authenticateJwt,
+  requireAdmin,
   validateParams(claimIdParamSchema),
   validateBody(rejectClaimSchema),
   claimController.rejectClaim.bind(claimController)

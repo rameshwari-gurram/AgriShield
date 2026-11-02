@@ -15,6 +15,7 @@ import {
   Clock,
   HelpCircle,
 } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
 import { farmService } from '../../services/farmService';
 import { riskAssessmentService } from '../../services/riskAssessmentService';
 import { Farm, RiskAssessmentResponseDTO } from '../../types';
@@ -24,6 +25,9 @@ import { RiskRuleCatalogModal } from '../../components/risk/RiskRuleCatalogModal
 import { LoadingSpinner } from '../../components/LoadingSpinner';
 
 export const AssessmentsPage: React.FC = () => {
+  const { user, isFarmer, isAdmin, isAuthenticated, activeProducer } = useAuth();
+  const farmerId = user?.id || activeProducer?.id;
+
   const [farms, setFarms] = useState<Farm[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -45,13 +49,28 @@ export const AssessmentsPage: React.FC = () => {
   const [filterRisk, setFilterRisk] = useState<string>('ALL');
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Fetch farms and latest assessments
+  // Fetch farms and latest assessments (role-scoped)
   const fetchAssessments = useCallback(async () => {
+    if (!isAuthenticated) {
+      setLoading(false);
+      return;
+    }
+
     try {
       setLoading(true);
       setError(null);
-      const res = await farmService.getFarms({ limit: 100 });
-      const activeFarms = res.data.farms.filter((f) => f.status === 'ACTIVE');
+
+      let activeFarms: Farm[] = [];
+      if (isFarmer && farmerId) {
+        const res = await farmService.getFarmsByFarmerId(farmerId);
+        const rawFarms = res.data || [];
+        activeFarms = rawFarms.filter((f) => f.status === 'ACTIVE');
+      } else if (isAdmin) {
+        const res = await farmService.getFarms({ limit: 100 });
+        const rawFarms = res.data?.farms || [];
+        activeFarms = rawFarms.filter((f) => f.status === 'ACTIVE');
+      }
+
       setFarms(activeFarms);
 
       const results = await Promise.allSettled(
@@ -92,7 +111,7 @@ export const AssessmentsPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isAuthenticated, isFarmer, isAdmin, farmerId]);
 
   useEffect(() => {
     fetchAssessments();

@@ -39,6 +39,7 @@ model Farmer {
   id                    String    @id @default(uuid()) @db.Uuid
   fullName              String    @db.VarChar(100)
   mobileNumber          String    @unique @db.VarChar(15)
+  email                 String?   @unique @db.VarChar(255)
   preferredLanguage     Language  @default(en)
   farmerReferenceNumber String?   @unique @db.VarChar(50)
   createdAt             DateTime  @default(now())

@@ -22,6 +22,7 @@ export interface Farmer {
   id: string;
   fullName: string;
   mobileNumber: string;
+  email?: string | null;
   preferredLanguage: LanguageCode;
   farmerReferenceNumber: string | null;
   createdAt: string;

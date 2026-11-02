@@ -5,6 +5,7 @@ export type SupportedLanguage = keyof typeof Language;
 export interface CreateFarmerDTO {
   fullName: string;
   mobileNumber: string;
+  email?: string | null;
   preferredLanguage?: Language;
   farmerReferenceNumber?: string;
 }
@@ -13,6 +14,7 @@ export interface FarmerResponseDTO {
   id: string;
   fullName: string;
   mobileNumber: string;
+  email?: string | null;
   preferredLanguage: Language;
   farmerReferenceNumber: string | null;
   createdAt: string;
@@ -39,12 +41,15 @@ export interface IFarmerRepository {
   create(data: {
     fullName: string;
     mobileNumber: string;
+    email?: string | null;
     preferredLanguage: Language;
     farmerReferenceNumber?: string | null;
   }): Promise<Farmer>;
   findById(id: string): Promise<Farmer | null>;
   findByMobileNumber(mobileNumber: string): Promise<Farmer | null>;
+  findByEmail(email: string): Promise<Farmer | null>;
   findByReferenceNumber(ref: string): Promise<Farmer | null>;
+  updateEmail(id: string, email: string): Promise<Farmer>;
   findAll(options: { skip: number; take: number; search?: string }): Promise<Farmer[]>;
   count(search?: string): Promise<number>;
 }

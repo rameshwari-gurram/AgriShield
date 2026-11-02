@@ -9,6 +9,7 @@ import {
   BookOpen,
   ArrowRight,
 } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
 import { farmService } from '../../services/farmService';
 import { riskAssessmentService } from '../../services/riskAssessmentService';
 import { Farm, PortfolioRiskSummaryDTO, RiskAssessmentResponseDTO } from '../../types';
@@ -19,6 +20,9 @@ import { FarmRiskBadge, FarmRiskStatus } from '../../components/risk/FarmRiskBad
 import { LoadingSpinner } from '../../components/LoadingSpinner';
 
 export const RiskAlertsPage: React.FC = () => {
+  const { user, isFarmer, isAdmin, isAuthenticated, activeProducer } = useAuth();
+  const farmerId = user?.id || activeProducer?.id;
+
   const [farms, setFarms] = useState<Farm[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -40,8 +44,11 @@ export const RiskAlertsPage: React.FC = () => {
   const [riskFilter, setRiskFilter] = useState<'ALL' | 'HIGH' | 'MODERATE' | 'LOW' | 'LOW_UNCONFIRMED' | 'UNASSESSED'>('ALL');
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Fetch portfolio summary
+  // Fetch portfolio summary - ADMIN ONLY calls API
   const fetchSummary = useCallback(async () => {
+    if (!isAdmin) {
+      return;
+    }
     try {
       setPortfolioLoading(true);
       setPortfolioError(null);
@@ -53,15 +60,35 @@ export const RiskAlertsPage: React.FC = () => {
     } finally {
       setPortfolioLoading(false);
     }
-  }, []);
+  }, [isAdmin]);
 
-  // Fetch farms and latest assessments
+  // Fetch farms and latest assessments (role-scoped)
   const fetchFarmsAndRisk = useCallback(async () => {
+    if (!isAuthenticated) {
+      setLoading(false);
+      setPortfolioLoading(false);
+      return;
+    }
+
     try {
       setLoading(true);
       setError(null);
-      const res = await farmService.getFarms({ limit: 100 });
-      const activeFarms = res.data.farms.filter((f) => f.status === 'ACTIVE');
+      if (isFarmer) {
+        setPortfolioLoading(true);
+        setPortfolioError(null);
+      }
+
+      let activeFarms: Farm[] = [];
+      if (isFarmer && farmerId) {
+        const res = await farmService.getFarmsByFarmerId(farmerId);
+        const rawFarms = res.data || [];
+        activeFarms = rawFarms.filter((f) => f.status === 'ACTIVE');
+      } else if (isAdmin) {
+        const res = await farmService.getFarms({ limit: 100 });
+        const rawFarms = res.data?.farms || [];
+        activeFarms = rawFarms.filter((f) => f.status === 'ACTIVE');
+      }
+
       setFarms(activeFarms);
 
       // Fetch latest risk assessments for active farms
@@ -97,21 +124,47 @@ export const RiskAlertsPage: React.FC = () => {
 
       setFarmRiskMap(statusMap);
       setFarmAssessmentMap(assessMap);
+
+      // For FARMER users, calculate summary metrics only from their own farms and available assessments
+      if (isFarmer) {
+        const assessedCount = Object.keys(assessMap).length;
+        const farmerSummary: PortfolioRiskSummaryDTO = {
+          totalFarms: activeFarms.length,
+          assessedFarms: assessedCount,
+          unassessedFarms: Math.max(0, activeFarms.length - assessedCount),
+          highRiskCount: Object.values(statusMap).filter((s) => s === 'HIGH').length,
+          moderateRiskCount: Object.values(statusMap).filter((s) => s === 'MODERATE').length,
+          lowRiskCount: Object.values(statusMap).filter((s) => s === 'LOW').length,
+          lowRiskUnconfirmedCount: Object.values(statusMap).filter((s) => s === 'LOW_UNCONFIRMED').length,
+          generatedAt: new Date().toISOString(),
+        };
+        setPortfolioSummary(farmerSummary);
+        setPortfolioLoading(false);
+        setPortfolioError(null);
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to fetch farms and risk posture';
       setError(msg);
+      if (isFarmer) {
+        setPortfolioError(msg);
+        setPortfolioLoading(false);
+      }
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isAuthenticated, isFarmer, isAdmin, farmerId]);
 
   useEffect(() => {
-    fetchSummary();
+    if (isAdmin) {
+      fetchSummary();
+    }
     fetchFarmsAndRisk();
-  }, [fetchSummary, fetchFarmsAndRisk]);
+  }, [isAdmin, fetchSummary, fetchFarmsAndRisk]);
 
   const refreshAll = () => {
-    fetchSummary();
+    if (isAdmin) {
+      fetchSummary();
+    }
     fetchFarmsAndRisk();
   };
 
@@ -175,7 +228,7 @@ export const RiskAlertsPage: React.FC = () => {
         summary={portfolioSummary}
         loading={portfolioLoading}
         error={portfolioError}
-        onRetry={fetchSummary}
+        onRetry={isAdmin ? fetchSummary : fetchFarmsAndRisk}
         onViewRules={() => setCatalogModalOpen(true)}
       />
 

@@ -11,6 +11,7 @@
 
 import { Router } from 'express';
 import { riskAssessmentController } from '../controllers/riskAssessment.controller.js';
+import { authenticateJwt, requireAdmin } from '../middleware/auth.middleware.js';
 import {
   validateParams,
   validateQuery,
@@ -63,21 +64,24 @@ const assessmentRouter = Router();
 /**
  * @route   GET /api/v1/risk-assessments/portfolio-summary
  * @desc    Retrieve macro-level risk summary metrics across all active farm parcels
- * @access  Public (Standard API v1)
+ * @access  Protected (Requires Bearer JWT with ADMIN role)
  * NOTE: Registered BEFORE /:assessmentId to avoid UUID parameter collision
  */
 assessmentRouter.get(
   '/portfolio-summary',
+  authenticateJwt,
+  requireAdmin,
   riskAssessmentController.getPortfolioSummary.bind(riskAssessmentController)
 );
 
 /**
  * @route   GET /api/v1/risk-assessments/:assessmentId
  * @desc    Retrieve a single risk assessment with its populated risk events and rule definitions
- * @access  Public / Protected (Standard API v1)
+ * @access  Protected (Requires Bearer JWT with farm ownership or ADMIN role)
  */
 assessmentRouter.get(
   '/:assessmentId',
+  authenticateJwt,
   validateParams(assessmentIdParamSchema),
   riskAssessmentController.getAssessmentById.bind(riskAssessmentController)
 );

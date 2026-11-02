@@ -22,10 +22,27 @@ import { PortfolioRiskSummaryCard } from '../../components/risk/PortfolioRiskSum
 import { RiskRuleCatalogModal } from '../../components/risk/RiskRuleCatalogModal';
 import { Farm, FarmStatus, FARM_STATUSES, PortfolioRiskSummaryDTO } from '../../types';
 import { LoadingSpinner } from '../../components/LoadingSpinner';
+import { useAuth } from '../../context/AuthContext';
+import { ProducerAuthModal } from '../../components/auth/ProducerAuthModal';
+import { LogIn } from 'lucide-react';
 
-export const FarmListPage: React.FC = () => {
-  const [farms, setFarms] = useState<Farm[]>([]);
-  const [loading, setLoading] = useState(true);
+export interface FarmListPageProps {
+  initialFarms?: Farm[];
+  initialLoading?: boolean;
+}
+
+export const FarmListPage: React.FC<FarmListPageProps> = ({
+  initialFarms,
+  initialLoading,
+}) => {
+  const { isAuthenticated, isFarmer, isAdmin, user, activeProducer } = useAuth();
+  const farmerId = user?.id || activeProducer?.id;
+  const [producerModalOpen, setProducerModalOpen] = useState(false);
+
+  const [farms, setFarms] = useState<Farm[]>(initialFarms || []);
+  const [loading, setLoading] = useState(
+    initialLoading !== undefined ? initialLoading : initialFarms === undefined
+  );
   const [error, setError] = useState<string | null>(null);
 
   const [farmRiskMap, setFarmRiskMap] = useState<Record<string, FarmRiskStatus>>({});
@@ -41,23 +58,49 @@ export const FarmListPage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<FarmStatus | 'ALL'>('ALL');
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
-  const [totalCount, setTotalCount] = useState(0);
+  const [totalCount, setTotalCount] = useState(initialFarms ? initialFarms.length : 0);
 
   const fetchFarms = useCallback(
     async (searchQuery: string, status: FarmStatus | 'ALL', pageNum: number) => {
+      if (!isAuthenticated || initialFarms !== undefined) {
+        setLoading(false);
+        return;
+      }
       try {
         setLoading(true);
         setError(null);
-        const res = await farmService.getFarms({
-          page: pageNum,
-          limit: 10,
-          search: searchQuery.trim() || undefined,
-          status: status === 'ALL' ? undefined : status,
-        });
 
-        setFarms(res.data.farms);
-        setTotalPages(res.data.pagination.totalPages);
-        setTotalCount(res.data.pagination.total);
+        if (isFarmer && farmerId) {
+          const res = await farmService.getFarmsByFarmerId(farmerId);
+          let loaded = res.data || [];
+          if (searchQuery.trim()) {
+            const q = searchQuery.trim().toLowerCase();
+            loaded = loaded.filter(
+              (f) =>
+                f.farmName.toLowerCase().includes(q) ||
+                f.farmReferenceNumber.toLowerCase().includes(q) ||
+                f.cropName.toLowerCase().includes(q) ||
+                f.village?.toLowerCase().includes(q)
+            );
+          }
+          if (status !== 'ALL') {
+            loaded = loaded.filter((f) => f.status === status);
+          }
+          setFarms(loaded);
+          setTotalPages(1);
+          setTotalCount(loaded.length);
+        } else if (isAdmin) {
+          const res = await farmService.getFarms({
+            page: pageNum,
+            limit: 10,
+            search: searchQuery.trim() || undefined,
+            status: status === 'ALL' ? undefined : status,
+          });
+
+          setFarms(res.data.farms);
+          setTotalPages(res.data.pagination.totalPages);
+          setTotalCount(res.data.pagination.total);
+        }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : 'Failed to fetch farms';
         setError(msg);
@@ -65,15 +108,19 @@ export const FarmListPage: React.FC = () => {
         setLoading(false);
       }
     },
-    []
+    [isAuthenticated, isFarmer, isAdmin, farmerId]
   );
 
   useEffect(() => {
     fetchFarms(search, statusFilter, page);
   }, [fetchFarms, statusFilter, page]);
 
-  // Stage 6: Fetch portfolio-level macro risk summary
+  // Stage 6: Fetch portfolio-level macro risk summary (Admin only)
   const fetchPortfolioSummary = useCallback(async () => {
+    if (!isAdmin) {
+      setPortfolioLoading(false);
+      return;
+    }
     try {
       setPortfolioLoading(true);
       setPortfolioError(null);
@@ -85,7 +132,7 @@ export const FarmListPage: React.FC = () => {
     } finally {
       setPortfolioLoading(false);
     }
-  }, []);
+  }, [isAdmin]);
 
   useEffect(() => {
     fetchPortfolioSummary();
@@ -226,14 +273,39 @@ export const FarmListPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Stage 6: Portfolio Risk Macro KPI Overview */}
-      <PortfolioRiskSummaryCard
-        summary={portfolioSummary}
-        loading={portfolioLoading}
-        error={portfolioError}
-        onRetry={fetchPortfolioSummary}
-        onViewRules={() => setIsRuleCatalogOpen(true)}
-      />
+      {/* Unauthenticated Sign In Prompt */}
+      {!isAuthenticated && (
+        <div
+          className="p-6 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm"
+          data-testid="farm-list-auth-prompt"
+        >
+          <div className="space-y-1">
+            <h3 className="text-sm font-bold">Sign In to View Your Registered Farm Parcels</h3>
+            <p className="text-xs text-emerald-800/80">
+              Producer authentication via mobile or email OTP is required to access your farm telemetry, satellite data, and parametric policies.
+            </p>
+          </div>
+          <button
+            onClick={() => setProducerModalOpen(true)}
+            data-testid="farm-list-login-btn"
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs uppercase tracking-wide transition shadow-sm self-start sm:self-auto whitespace-nowrap"
+          >
+            <LogIn className="w-4 h-4" />
+            <span>Sign In with OTP</span>
+          </button>
+        </div>
+      )}
+
+      {/* Stage 6: Portfolio Risk Macro KPI Overview (Admin only) */}
+      {isAdmin && (
+        <PortfolioRiskSummaryCard
+          summary={portfolioSummary}
+          loading={portfolioLoading}
+          error={portfolioError}
+          onRetry={fetchPortfolioSummary}
+          onViewRules={() => setIsRuleCatalogOpen(true)}
+        />
+      )}
 
       {/* Search & Status Filters Bar */}
       <div className="flex flex-col md:flex-row gap-4">
@@ -515,6 +587,11 @@ export const FarmListPage: React.FC = () => {
       <RiskRuleCatalogModal
         isOpen={isRuleCatalogOpen}
         onClose={() => setIsRuleCatalogOpen(false)}
+      />
+
+      <ProducerAuthModal
+        isOpen={producerModalOpen}
+        onClose={() => setProducerModalOpen(false)}
       />
     </div>
   );
