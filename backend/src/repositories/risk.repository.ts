@@ -152,20 +152,20 @@ export class RiskRepository implements IRiskRepository {
 
   /**
    * Retrieve the latest RiskAssessment for each active farm (status = ACTIVE).
-   * Uses PostgreSQL DISTINCT ON (a.farm_id) with deterministic tie-breakers:
-   * assessed_at DESC, created_at DESC, id DESC.
+   * Uses PostgreSQL DISTINCT ON (a."farmId") with deterministic tie-breakers:
+   * "assessedAt" DESC, "createdAt" DESC, id DESC.
    */
   async getLatestAssessmentsForActiveFarms(): Promise<RiskAssessmentWithEvents[]> {
     const rawLatest = await this.db.$queryRaw<{ id: string }[]>`
-      SELECT DISTINCT ON (a.farm_id)
+      SELECT DISTINCT ON (a."farmId")
         a.id
       FROM risk_assessments a
-      JOIN farms f ON a.farm_id = f.id
+      JOIN farms f ON a."farmId" = f.id
       WHERE f.status::text = 'ACTIVE'
       ORDER BY
-        a.farm_id,
-        a.assessed_at DESC,
-        a.created_at DESC,
+        a."farmId",
+        a."assessedAt" DESC,
+        a."createdAt" DESC,
         a.id DESC
     `;
 
